@@ -5,9 +5,7 @@ import utils
 import time
 import config
 import math
-from main import BOARD_SIZE
-
-
+import numpy as np
 distrib_calculator = utils.DistributionCalculator(config.board_size)
 
 
@@ -15,13 +13,14 @@ class NODE(object):
     """
     结点不存储游戏画面的信息，只存储父子结点，以及进入各个子结点的动作，自然就可以唯一确定画面了
     """
-    def __init__(self, parent, player, p=0.0, action_value=0.0):
+
+    def __init__(self, parent, player, p=0.1, state_value=0.0):
         self.parent = parent  # 父节点
         self.counter = 0
         self.child = {}  # 子节点
         self.player = player
         self.p = p  # 该节点被访问的先验概率，由神经网络给出
-        self.action_value = action_value
+        self.state_value = state_value
         # self.is_fully_expanded = False  # 新创建的结点没有完全展开
 
     def no_child(self):
@@ -49,16 +48,18 @@ class NODE(object):
         return node_, max_key
 
     def backup(self, value):
-        self.action_value += value
+        self.state_value += value
         if self.parent:
             self.parent.backup(-value)
 
     def UCB_value(self):
-        q = self.action_value / max(self.counter, 1)
+        # 注意，结点的state_value是指从这个结点出发的价值。父节点（黑手）在挑选子节点（白手）的时候，希望挑选白手state_value最小的那个
+        # 故下面式子取个负值，后面则选择最大的那个了
+        q = -self.state_value / max(self.counter, 1)
         e = self.p * math.sqrt(math.log(self.parent.counter) / max(self.counter, 1))
         return q + config.Cucb * e
 
-    def get_distribution(self, train=True):  ## used to get the step distribution of current
+    def get_distribution(self, train=True):
         for key in self.child.keys():
             distrib_calculator.push(key, self.child[key].counter)
         return distrib_calculator.get(train=train)
@@ -75,18 +76,40 @@ class MCTS(object):
         self.distribution_calculater = utils.DistributionCalculator(self.board_size)  # 暂时不知干嘛的
 
     def run(self, train=True):
+        """
+        主游戏执行一次
+        :param train:
+        :return:
+        """
         terminal = CONTINUE
-        game_record = []
+        game_record = []  # 记录主游戏每一步所走的action
         begin_time = int(time.time())
         step = 1
         total_eval = 0
         total_step = 0
         while terminal == CONTINUE:
-            begin_time = int(time.time())
+            begin_time1 = int(time.time())
             # 在当前主游戏的基础上往前探索
             avg_expand, avg_s_per_step = self.simulation()
+            # 返回的是访问次数最多的那个action，而不是ucb值最大的那个？
             action, distribution = self.current_node.get_distribution(train=train)
-
+            terminal, state = self.game_process.step(action)
+            self.current_node = self.MCTS_step(action)
+            game_record.append({"distribution": distribution, "action": action})
+            end_time1 = int(time.time())
+            print("step:{},cost:{}s, total time:{}:{} Avg expand:{}, Aver step:{}".format(
+                step, end_time1 - begin_time1, int((end_time1 - begin_time) / 60),
+                      (end_time1 - begin_time) % 60, avg_expand, avg_s_per_step), end="\r")
+            total_eval += avg_expand
+            total_step += avg_s_per_step
+            step += 1
+        self.renew()
+        end_time = int(time.time())
+        min_ = int((end_time - begin_time) / 60)
+        second = (end_time - begin_time) % 60
+        print("In last game, we cost {}:{}".format(min_, second), end="\n")
+        game_record.append(terminal == DRAW)
+        return game_record, total_eval / step, total_step / step, terminal
 
     def simulation(self):
         """
@@ -105,7 +128,7 @@ class MCTS(object):
                     valid_move = utils.valid_move(state)
                     assert len(valid_move) > 0  # 因为state不是终止状态，所以有效移动的数目肯定有大于0
                     state_prob, _ = self.network.eval(
-                        utils.trans_to_input(state * self.simulate_game.current_player))
+                        utils.trans_to_input(state * self.simulate_game.current_player)[np.newaxis, ...])
                     expand_counter += 1
                     for move in valid_move:
                         current_node.add_child(move, state_prob[0, move[0] * self.board_size + move[1]])
@@ -115,14 +138,27 @@ class MCTS(object):
                 else:  # 当前结点已经展开过，就直接选择一个动作，然后进入下一步
                     current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
                     terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
-
+            # 假设现在是初始画面，黑子是先手，轮到黑子落子，player=1，局面是s1，结点是node1，
+            # 然后黑手执行a1，得到结点node2，局面变为s2，player=-1，于是有node1.child[a1] = node2，现在轮到白手了
+            # 若局面没有结束，则估计s2*player的价值，若这个价值很低，表示白手接下来不管怎么落子都输定了，node2会有一个很低的state_value
+            # 若局面结束了，表示黑手胜利了，白手对应的node2应该有一个很低的state_value，于是用-1表示
             if terminal == WON_LOST:
-                current_node.backup(1)
+                current_node.backup(-1)
             elif terminal == DRAW:
                 current_node.backup(0)
             else:
-                assert not is_fully_expanded
-                _, value = self.network.eval(utils.trans_to_input(state * self.simulate_game.current_player))
+                assert not current_node.is_expanded()
+                # 落子前判断价值。
+                _, value = self.network.eval(utils.trans_to_input(state * self.simulate_game.current_player)[np.newaxis, ...])
                 current_node.backup(value[0])
         # 返回平均展开次数和平均行进步数
         return expand_counter / self.simulation_per_step, step_per_simulate / self.simulation_per_step
+
+    def MCTS_step(self, action):
+        next_node = self.current_node.child[action]
+        next_node.parent = None  # 主游戏走一步以后，不需要再回溯更新祖先结点
+        return next_node
+
+    def renew(self):
+        self.current_node = NODE(None, 1)
+        self.game_process.reset()
