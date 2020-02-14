@@ -75,8 +75,8 @@ class NODE(object):
         action_idx = np.random.choice(len(acts), p=p)
         action = acts[action_idx]
         action = (int(action[0]), int(action[1]))
-        probs = np.zeros(board_size*board_size, dtype=np.float32)
-        probs[[a[0]*a[1] for a in acts]] = act_probs
+        probs = np.zeros(board_size * board_size, dtype=np.float32)
+        probs[[a[0] * a[1] for a in acts]] = act_probs
         return action, probs
 
 
@@ -143,7 +143,6 @@ class MCTS(object):
                     terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
                     break  # 当前节点没有完全展开，就只展开，然后跳出循环
                 else:  # 当前结点已经展开过，就直接选择一个动作，然后进入下一步
-                    t2 = time.time()
                     current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
                     terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
             # 假设现在是初始画面，黑子是先手，轮到黑子落子，player=1，局面是s1，结点是node1，
@@ -172,3 +171,25 @@ class MCTS(object):
         self.current_node = NODE(None, 1)
         self.game_process.reset()
         self.simulate_game.reset()
+
+    def interact_game_init(self):
+        self.renew()
+        _, _ = self.simulation()
+        action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
+        terminal, state = self.game_process.step(action)
+        self.MCTS_step(action)
+        return state, terminal
+
+    def interact_game(self, action):
+        terminal, state = self.game_process.step(action)
+        return state, terminal
+
+    def interact_game_ai(self, action, terminal, state):
+        self.MCTS_step(action)
+        if terminal != CONTINUE:
+            return state, terminal
+        _, _ = self.simulation()
+        action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
+        terminal, state = self.game_process.step(action)
+        self.MCTS_step(action)
+        return state, terminal

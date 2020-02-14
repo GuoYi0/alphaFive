@@ -61,7 +61,7 @@ def main(game_file_saved_dict="game_record"):
         journalist.add_summary(sum_res, step)
 
         if step % 60 == 0:
-            net.saver.save(net.sess, save_path=os.path.join("ckpt", "alphaFive"), global_step=step)
+            net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
             # test_game_record, _, _ = tree.run(train=False)
         step += 1
         print("total time: %ds per step" % (int(time.time()-time1)))

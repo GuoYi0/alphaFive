@@ -71,6 +71,15 @@ class ResNet(object):
         value_ = self.sess.run(self.value, feed_dict={self.inputs: inputs})
         return value_
 
+    def restore(self, ckpt_path):
+        checkpoint = tf.train.get_checkpoint_state(ckpt_path)
+        if checkpoint and checkpoint.model_checkpoint_path:
+            self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
+            print("Successfully loaded:", checkpoint.model_checkpoint_path)
+        else:
+            raise FileNotFoundError("Could not find old network weights")
+
+
 
 def softmax(x):
     x -= np.max(x, axis=1, keepdims=True)
