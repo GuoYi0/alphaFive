@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 from functools import reduce
+import numpy as np
 DATA_FORMAT = "channels_first"
 
 
@@ -47,8 +48,31 @@ class ResNet(object):
             self.policy = tf.layers.dense(p, self.board_size*self.board_size, activation=None, name="fc1")
 
     def eval(self, inputs):
+        """
+        把一个eval函数拆分成下面两个get_prob和get_value， 要调用的时候分开分别调用，会快很多
+        :param inputs:
+        :return:
+        """
         prob = tf.nn.softmax(self.policy, axis=1)
         prob_, value_ = self.sess.run([prob, self.value], feed_dict={self.inputs: inputs})
         return prob_, value_
 
+    def get_prob(self, inputs):
+        """
+        网络搭建好了以后就不要再添加结点了，不然会慢很多。所以最好先求出policy，再用numpy进行softmax
+        :param inputs:
+        :return:
+        """
+        # prob = tf.nn.softmax(self.policy, axis=1)  # 这个写法是不好了，因为这个函数每次调用，都会往gpu增加结点
+        policy = self.sess.run(self.policy, feed_dict={self.inputs: inputs})
+        return softmax(policy)
 
+    def get_value(self, inputs):
+        value_ = self.sess.run(self.value, feed_dict={self.inputs: inputs})
+        return value_
+
+
+def softmax(x):
+    x -= np.max(x, axis=1, keepdims=True)
+    ex = np.exp(x)
+    return ex / np.sum(ex, axis=1, keepdims=True)

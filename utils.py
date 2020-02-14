@@ -47,8 +47,6 @@ class DistributionCalculator(object):
             # move = np.random.choice(choice_pool, p=0.8 * np.array(choice_prob) + 0.2 * np.random.dirichlet(
             #     0.3 * np.ones(len(choice_prob))))
             p = 0.8 * np.array(choice_prob) + 0.2 * np.random.dirichlet(0.3 * np.ones(len(choice_prob)))
-            from IPython import embed;
-            embed()
             move = np.random.choice(choice_pool, p=0.8 * np.array(choice_prob) + 0.2 * np.random.dirichlet(
                 0.3 * np.ones(len(choice_prob))))
 
@@ -58,10 +56,10 @@ class DistributionCalculator(object):
         return move, result
 
 
-def trans_to_input(state: np.ndarray):
-    # out = state.astype(np.float32)
-    tmp1 = np.equal(state, 1).astype(np.float32)
-    tmp2 = np.equal(state, -1).astype(np.float32)
+def trans_to_input(state: np.ndarray, type_=np.float32):
+    # return state.astype(np.float32)
+    tmp1 = np.equal(state, 1).astype(type_)
+    tmp2 = np.equal(state, -1).astype(type_)
     out = np.stack([tmp1, tmp2])
     return out
 
@@ -76,13 +74,13 @@ def write_file(objects, file_name):
     filewriter.close()
 
 
-def generate_training_data(game_record, board_size):
+def generate_training_data(game_record, board_size, discount=1.0):
     """
     :param game_record: game_record.append({"distribution": distribution, "action": action})
     :param board_size:
     :return:
     """
-    board = np.zeros([board_size, board_size])
+    board = np.zeros([board_size, board_size], dtype=np.int8)
     data = []
     player = 1
     if game_record[-1]:
@@ -93,7 +91,7 @@ def generate_training_data(game_record, board_size):
         winner = -1  # 后手（白手）赢了
     for i in range(len(game_record) - 1):
         action = game_record[i]['action']
-        state = trans_to_input(board * player)
+        state = trans_to_input(board * player, type_=np.int8)
         data.append({"state": state, "distribution": game_record[i]['distribution'], "value": winner})
         board[action[0], action[1]] = player
         player, winner = -player, -winner
@@ -101,30 +99,74 @@ def generate_training_data(game_record, board_size):
 
 
 class RandomStack(object):
-    def __init__(self, length=1000):
-        self.state = []
-        self.distrib = []
-        self.winner = []
+    def __init__(self, board_size, dim=2, length=1000):
+        self.state = np.empty(shape=(length, dim, board_size, board_size), dtype=np.int8)
+        self.distrib = np.empty(shape=(length, board_size * board_size), dtype=np.float32)
+        self.winner = np.empty(shape=(length,), dtype=np.int8)
         self.length = length
+        self.board_size = board_size
+        self.idx = 0
+        self.is_full = False
 
     def isEmpty(self):
-        return len(self.state) == 0
+        pass
 
-    def push(self, item):
-        self.state.append(item["state"])
-        self.distrib.append(item["distribution"])
-        self.winner.append(item["value"])
-        if len(self.state) >= self.length:
-            self.state = self.state[1:]
-            self.distrib = self.distrib[1:]
-            self.winner = self.winner[1:]
+    def push(self, data: list):
+        """
+        :param data: 一个list，每个元素是一个dict，有键"state"，"distribution", "value"
+        :return:
+        """
+        for item in data:
+            for i in [0, 1, 2, 3]:  # 旋转和翻转
+                # from IPython import embed; embed()
+                self.state[self.idx] = np.rot90(item["state"], k=i, axes=(1, 2))  # 并非原地翻转
+                self.distrib[self.idx] = np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
+                                                  k=i).reshape((-1,))
+                self.winner[self.idx] = item["value"]
+                if self.idx >= self.length:
+                    self.idx = 0
+                    self.is_full = True
 
-    def get_data(self, batch_size=None):
-        if batch_size is not None and batch_size < len(self.state):
-            idx = np.random.choice(len(self.state), size=batch_size, replace=False)
+                self.state[self.idx] = np.flip(np.rot90(item["state"], k=i, axes=(1, 2)), axis=1)  # 并非原地翻转
+                self.distrib[self.idx] = np.flip(
+                    np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
+                             k=i), axis=0).reshape((-1,))
+                self.winner[self.idx] = item["value"]
+                if self.idx >= self.length:
+                    self.idx = 0
+                    self.is_full = True
+
+                self.state[self.idx] = np.flip(np.rot90(item["state"], k=i, axes=(1, 2)), axis=2)  # 并非原地翻转
+                self.distrib[self.idx] = np.flip(
+                    np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
+                             k=i), axis=1).reshape((-1,))
+                self.winner[self.idx] = item["value"]
+                if self.idx >= self.length:
+                    self.idx = 0
+                    self.is_full = True
+
+    def get_data(self, batch_size=1):
+        if self.is_full:  # 满了，随便挑选
+            idx = np.random.choice(self.length, size=batch_size, replace=False)
             state = [self.state[i] for i in idx]
             distrib = [self.distrib[i] for i in idx]
             winner = [self.winner[i] for i in idx]
-            return np.stack(state), np.stack(distrib), np.stack(winner)
+            return np.stack(state).astype(np.float32), np.stack(distrib).astype(np.float32), np.stack(
+                winner).astype(np.float32)
+        elif self.idx > batch_size:  # 没满，则在指定范围挑选
+            idx = np.random.choice(self.idx, size=batch_size, replace=False)
+            state = [self.state[i] for i in idx]
+            distrib = [self.distrib[i] for i in idx]
+            winner = [self.winner[i] for i in idx]
+            return np.stack(state).astype(np.float32), np.stack(distrib).astype(np.float32), np.stack(
+                winner).astype(np.float32)
+        else:
+            return self.state[:self.idx].astype(np.float32), self.distrib[:self.idx].astype(
+                np.float32), self.winner[:self.idx].astype(np.float32)
 
-        return np.stack(self.state), np.stack(self.distrib), np.stack(self.winner)
+
+def softmax(x):
+    max_value = np.max(x)
+    probs = np.exp(x - max_value)
+    probs /= np.sum(probs)
+    return probs
