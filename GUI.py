@@ -18,7 +18,7 @@ def main(trained_ckpt):
     net = Model(config.board_size)
     net.restore(trained_ckpt)
     tree = MCTS(config.board_size, net, goal=config.goal)
-    state, terminal = tree.interact_game_init()
+    state, terminal, _ = tree.interact_game_init()
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("五子棋")
@@ -99,7 +99,7 @@ def main(trained_ckpt):
                         draw_background(screen)
                         draw_stone(screen)
                         pygame.display.flip()
-                        state, terminal = tree.interact_game_ai(action=grid, terminal=terminal, state=state)  # AI落子
+                        state, terminal, _ = tree.interact_game_ai(action=grid, terminal=terminal, state=state)  # AI落子
         draw_background(screen)
         draw_stone(screen)
         pygame.display.flip()

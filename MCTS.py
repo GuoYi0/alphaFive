@@ -37,16 +37,12 @@ class NODE(object):
         self.counter += 1  # 从这个结点出发根据ucb去寻找子节点，该节点被访问了一次
         keys = list(self.child.keys())
         assert len(keys) > 0
-        key = keys[0]
-        max_ucb = self.child[key].UCB_value()
-        max_key = key
-        for key in keys[1:]:
-            ucb = self.child[key].UCB_value()
-            if ucb > max_ucb:
-                max_ucb = ucb
-                max_key = key
-        node_ = self.child[max_key]
-        return node_, max_key
+        cubs = [self.child[key].UCB_value() for key in keys]  # 求cub值，长度为keys长度
+        max_cub = max(cubs)  # 最大cub
+        key_idx = np.random.choice(np.where(np.array(cubs) == max_cub)[0])
+        choice_key = keys[key_idx]
+        node_ = self.child[choice_key]
+        return node_, choice_key
 
     def backup(self, value):
         self.state_value += value
@@ -69,7 +65,9 @@ class NODE(object):
         act_counter = [(act, node.counter) for act, node in self.child.items()]
         acts, counters = zip(*act_counter)
         if not train:
-            return acts[int(np.argmax(counters))]
+            max_counter = np.max(counters)
+            act_idx = np.random.choice([idx for idx in range(len(counters)) if counters[idx] == max_counter])
+            return acts[int(act_idx)]
         act_probs = utils.softmax(1.0 / tem * np.log(np.array(counters) + 1e-9))
         p = 0.75 * act_probs + 0.25 * np.random.dirichlet(0.3 * np.ones(act_probs.shape))
         action_idx = np.random.choice(len(acts), p=p)
@@ -81,12 +79,12 @@ class NODE(object):
 
 
 class MCTS(object):
-    def __init__(self, board_size, network, simulation_per_step=400, goal=5):
+    def __init__(self, board_size, network, simulation_per_step=400, goal=5, game=None):
         self.board_size = board_size
         self.network = network
         self.simulation_per_step = simulation_per_step  # 每走一步需要先模拟多少步
         self.current_node = NODE(None, 1)
-        self.game_process = Game(board_size=board_size, goal=goal)  # 主游戏进程
+        self.game_process = game if game is not None else Game(board_size=board_size, goal=goal)  # 主游戏进程
         self.simulate_game = Game(board_size=board_size, goal=goal)  # 模拟游戏
 
     def run(self, train=True, tmp=1.0):
@@ -162,6 +160,41 @@ class MCTS(object):
         # 返回平均展开次数和平均行进步数
         return expand_counter, steps_simulate
 
+    def simulation_pure_MCST(self):
+        """
+        由于node不存储游戏画面信息，故state和node同步变换。
+        该函数执行完毕以后，就形成了一棵以self.current_node为根节点的树，
+        该函数，只为能让主游戏进程能走上一步
+        :return:
+        """
+        expand_counter, steps_simulate = 0, 0  # 一次模拟展开的次数， 一次模拟探索的步数
+        for _ in range(self.simulation_per_step):  # 一次深入探索
+            is_fully_expanded, terminal = True, CONTINUE
+            self.simulate_game.simulate_reset(self.game_process.current_board())  # 用主游戏当前局面初始化模拟局面
+            current_node = self.current_node  # 指示主游戏当前节点，就地
+            state = self.simulate_game.current_board()  # 模拟游戏的当前局面
+            while terminal == CONTINUE:
+                steps_simulate += 1  # 模拟走一步
+                if not current_node.is_expanded():
+                    valid_move = utils.valid_move(state)
+                    assert len(valid_move) > 0  # 因为state不是终止状态，所以有效移动的数目肯定有大于0
+                    expand_counter += 1
+                    for move in valid_move:
+                        current_node.add_child(move, 1.0)
+                    current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
+                    terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
+                else:  # 当前结点已经展开过，就直接选择一个动作，然后进入下一步
+                    current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
+                    terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
+            # 假设现在是初始画面，黑子是先手，轮到黑子落子，player=1，局面是s1，结点是node1，
+            # 然后黑手执行a1，得到结点node2，局面变为s2，player=-1，于是有node1.child[a1] = node2，现在轮到白手了
+            # 若局面没有结束，则估计s2*player的价值，若这个价值很低，表示白手接下来不管怎么落子都输定了，node2会有一个很低的state_value
+            # 若局面结束了，表示黑手胜利了，白手对应的node2应该有一个很低的state_value，于是用-1表示
+            if terminal == WON_LOST:
+                current_node.backup(-1)
+            elif terminal == DRAW:
+                current_node.backup(0)
+
     def MCTS_step(self, action):
         next_node = self.current_node.child[action]
         next_node.parent = None  # 主游戏走一步以后，不需要再回溯更新祖先结点
@@ -172,23 +205,41 @@ class MCTS(object):
         self.game_process.reset()
         self.simulate_game.reset()
 
-    def interact_game_init(self):
+    def interact_game_init(self, ai=True):
         self.renew()
-        _, _ = self.simulation()
+        if ai:
+            _, _ = self.simulation()
+        else:
+            self.simulation_pure_MCST()
         action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
         terminal, state = self.game_process.step(action)
         self.MCTS_step(action)
-        return state, terminal
+        return state, terminal, action
 
     def interact_game(self, action):
         terminal, state = self.game_process.step(action)
         return state, terminal
 
-    def interact_game_ai(self, action, terminal, state):
+    def interact_game_ai(self, action, terminal, state, ai=True):
         self.MCTS_step(action)
         if terminal != CONTINUE:
             return state, terminal
-        _, _ = self.simulation()
+        if ai:
+            _, _ = self.simulation()
+        else:
+            self.simulation_pure_MCST()
+        action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
+        terminal, state = self.game_process.step(action)
+        self.MCTS_step(action)
+        return state, terminal
+
+    def interact_game2(self, terminal, state, ai=True):
+        if terminal != CONTINUE:
+            return state, terminal
+        if ai:
+            _, _ = self.simulation()
+        else:
+            self.simulation_pure_MCST()
         action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
         terminal, state = self.game_process.step(action)
         self.MCTS_step(action)

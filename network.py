@@ -21,6 +21,7 @@ class ResNet(object):
         self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size*board_size])
         self.value = None
         self.policy = None
+        self.entropy = None
         self.network()
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
@@ -46,6 +47,7 @@ class ResNet(object):
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
             self.policy = tf.layers.dense(p, self.board_size*self.board_size, activation=None, name="fc1")
+            self.entropy = -tf.reduce_sum(tf.nn.softmax(self.policy) * tf.nn.log_softmax(self.policy, axis=1), axis=-1)
 
     def eval(self, inputs):
         """

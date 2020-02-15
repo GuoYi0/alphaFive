@@ -123,6 +123,7 @@ class RandomStack(object):
                 self.distrib[self.idx] = np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
                                                   k=i).reshape((-1,))
                 self.winner[self.idx] = item["value"]
+                self.idx += 1
                 if self.idx >= self.length:
                     self.idx = 0
                     self.is_full = True
@@ -132,6 +133,7 @@ class RandomStack(object):
                     np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
                              k=i), axis=0).reshape((-1,))
                 self.winner[self.idx] = item["value"]
+                self.idx += 1
                 if self.idx >= self.length:
                     self.idx = 0
                     self.is_full = True
@@ -141,11 +143,13 @@ class RandomStack(object):
                     np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
                              k=i), axis=1).reshape((-1,))
                 self.winner[self.idx] = item["value"]
+                self.idx += 1
                 if self.idx >= self.length:
                     self.idx = 0
                     self.is_full = True
 
     def get_data(self, batch_size=1):
+
         if self.is_full:  # 满了，随便挑选
             idx = np.random.choice(self.length, size=batch_size, replace=False)
             state = [self.state[i] for i in idx]
