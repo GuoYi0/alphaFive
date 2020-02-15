@@ -23,7 +23,7 @@ def main(game_file_saved_dict="game_record"):
     mse = tf.reduce_mean(tf.squared_difference(net.value, net.winner))
     entropy = tf.reduce_mean(net.entropy)
     L2_loss = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if "bias" not in v.name])
-    total_loss = cross_entropy + 2.0 * mse + L2_loss * 1e-6
+    total_loss = cross_entropy + mse + L2_loss * 1e-6
     lr = tf.get_variable("learning_rate", dtype=tf.float32, initializer=1e-3)
     opt = tf.train.AdamOptimizer(lr).minimize(total_loss)
     net.sess.run(tf.global_variables_initializer())

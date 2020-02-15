@@ -7,8 +7,6 @@ import config
 import math
 import numpy as np
 
-distrib_calculator = utils.DistributionCalculator(config.board_size)
-
 
 class NODE(object):
     """
@@ -55,11 +53,6 @@ class NODE(object):
         q = -self.state_value / max(self.counter, 1)
         e = self.p * math.sqrt(self.parent.counter) / (self.counter + 1)
         return q + config.Cucb * e
-
-    def get_distribution(self, train=True):
-        for key in self.child.keys():
-            distrib_calculator.push(key, self.child[key].counter)
-        return distrib_calculator.get(train=train)
 
     def get_action_probs(self, board_size, train=True, tem=1.0):
         act_counter = [(act, node.counter) for act, node in self.child.items()]
@@ -124,7 +117,8 @@ class MCTS(object):
         expand_counter, steps_simulate = 0, 0  # 一次模拟展开的次数， 一次模拟探索的步数
         for _ in range(self.simulation_per_step):  # 一次深入探索
             is_fully_expanded, terminal = True, CONTINUE
-            self.simulate_game.simulate_reset(self.game_process.current_board())  # 用主游戏当前局面初始化模拟局面
+            # 用主游戏当前局面初始化模拟局面
+            self.simulate_game.simulate_reset(self.game_process.current_board(), self.game_process.last_action)
             current_node = self.current_node  # 指示主游戏当前节点，就地
             state = self.simulate_game.current_board()  # 模拟游戏的当前局面
             while terminal == CONTINUE:
@@ -133,7 +127,9 @@ class MCTS(object):
                     valid_move = utils.valid_move(state)
                     assert len(valid_move) > 0  # 因为state不是终止状态，所以有效移动的数目肯定有大于0
                     state_prob = self.network.get_prob(
-                        utils.trans_to_input(state * self.simulate_game.current_player)[np.newaxis, ...])
+                        utils.trans_to_input(state * self.simulate_game.current_player,
+                                             player=self.simulate_game.current_player,
+                                             last_action=self.simulate_game.last_action)[np.newaxis, ...])
                     expand_counter += 1
                     for move in valid_move:
                         current_node.add_child(move, state_prob[0, move[0] * self.board_size + move[1]])
@@ -155,7 +151,9 @@ class MCTS(object):
                 assert not current_node.is_expanded()
                 # 落子前判断价值。
                 value = self.network.get_value(
-                    utils.trans_to_input(state * self.simulate_game.current_player)[np.newaxis, ...])
+                    utils.trans_to_input(state * self.simulate_game.current_player,
+                                         player=self.simulate_game.current_player,
+                                         last_action=self.simulate_game.last_action)[np.newaxis, ...])
                 current_node.backup(value[0])
         # 返回平均展开次数和平均行进步数
         return expand_counter, steps_simulate

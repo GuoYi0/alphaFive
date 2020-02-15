@@ -13,16 +13,18 @@ class GoBang(object):
         self.current_player = 1  # 当前棋手。先手是1，后手是-1。黑子先下，为1；白字为-1
         self.passed = 0  # 一共下了多少步了
         self.goal = goal  # goal = 5 就是五子棋，
+        self.last_action = None
 
     def reset(self):
         self.board = np.zeros((self.board_size, self.board_size), dtype=np.int8)
         self.current_player = 1  # 当前棋手。先手是1，后手是-1
         self.passed = 0
+        self.last_action = None
 
     def current_board(self):
         return self.board
 
-    def simulate_reset(self, board_state: np.ndarray):
+    def simulate_reset(self, board_state: np.ndarray, last_action):
         self.board = board_state.copy()
         black_count = np.where(board_state == 1)[0].shape[0]  # 黑子为1
         white_count = np.where(board_state == -1)[0].shape[0]  # 白子为-1
@@ -33,6 +35,7 @@ class GoBang(object):
         else:
             raise ValueError("Invalid board state")
         self.passed = black_count + white_count
+        self.last_action = last_action
 
     def step(self, action):
         row, col = action
@@ -40,6 +43,7 @@ class GoBang(object):
         self.board[row, col] = self.current_player
         self.current_player = -self.current_player
         self.passed += 1
+        self.last_action = action  # 记录走的这一步
         return self.check_over(action), self.board
 
     def check_over(self, action):

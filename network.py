@@ -16,7 +16,7 @@ class ResNet(object):
     """
     def __init__(self, board_size):
         self.board_size = board_size
-        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 2, board_size, board_size])
+        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 4, board_size, board_size])
         self.winner = tf.placeholder(dtype=tf.float32, shape=[None])
         self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size*board_size])
         self.value = None
