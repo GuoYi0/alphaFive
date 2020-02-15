@@ -18,8 +18,11 @@ def main(game_file_saved_dict="game_record"):
     stack = utils.RandomStack(board_size=config.board_size, length=10000)
     tree = MCTS(config.board_size, net, simulation_per_step=config.simulation_per_step, goal=config.goal)
     step = 1
-    cross_entropy = tf.reduce_mean(
-        tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels=net.distrib, logits=net.policy), -1))
+
+    # 不知道为啥下面这个表达方式有问题
+    # cross_entropy = tf.reduce_mean(
+    #     tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels=net.distrib, logits=net.policy), -1))
+    cross_entropy = tf.negative(tf.reduce_mean(tf.reduce_sum(tf.multiply(net.distrib, net.log_softmax), axis=1)))
     mse = tf.reduce_mean(tf.squared_difference(net.value, net.winner))
     entropy = tf.reduce_mean(net.entropy)
     L2_loss = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if "bias" not in v.name])
@@ -45,7 +48,7 @@ def main(game_file_saved_dict="game_record"):
         time2 = int(time.time())
         game_time = time2 - time1
         game_length = len(game_record) - 1
-        if game_record[-1]:  # 对了最后一个装的是是否平局
+        if game_record[-1]:  # 对了最后一个装的是否平局
             print("game tied, length:{}, time cost: {}".format(game_length, game_time))
         elif game_length % 2 == 1:
             print("game {}, black win, length:{}, time cost: {}".format(step, game_length, game_time))
@@ -66,7 +69,7 @@ def main(game_file_saved_dict="game_record"):
                                                                             net.winner: winner})
         journalist.add_summary(sum_res, step)
         print("xcross_loss: %0.3f, mse: %0.3f, entropy: %0.3f" % (xcro_loss, mse_, entropy_))
-        if step % 100 == 0:
+        if step % 60 == 0:
             net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
             evaluate(tree)
         step += 1

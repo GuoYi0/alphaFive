@@ -22,8 +22,10 @@ class ResNet(object):
         self.value = None
         self.policy = None
         self.entropy = None
+        self.log_softmax = None
         self.network()
-        self.sess = tf.Session()
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver(max_to_keep=100)
 
@@ -47,7 +49,8 @@ class ResNet(object):
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
             self.policy = tf.layers.dense(p, self.board_size*self.board_size, activation=None, name="fc1")
-            self.entropy = -tf.reduce_sum(tf.nn.softmax(self.policy) * tf.nn.log_softmax(self.policy, axis=1), axis=-1)
+            self.log_softmax = tf.nn.log_softmax(self.policy, axis=1)
+            self.entropy = -tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=-1)
 
     def eval(self, inputs):
         """
@@ -80,8 +83,6 @@ class ResNet(object):
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
         else:
             raise FileNotFoundError("Could not find old network weights")
-
-
 
 def softmax(x):
     x -= np.max(x, axis=1, keepdims=True)

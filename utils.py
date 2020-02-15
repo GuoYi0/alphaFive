@@ -97,18 +97,17 @@ class RandomStack(object):
                     self.idx = 0
                     self.is_full = True
 
-                self.state[self.idx] = np.flip(np.rot90(item["state"], k=i, axes=(1, 2)), axis=2)  # 并非原地翻转
-                self.distrib[self.idx] = np.flip(
-                    np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
-                             k=i), axis=1).reshape((-1,))
-                self.winner[self.idx] = item["value"]
-                self.idx += 1
-                if self.idx >= self.length:
-                    self.idx = 0
-                    self.is_full = True
+                # self.state[self.idx] = np.flip(np.rot90(item["state"], k=i, axes=(1, 2)), axis=2)  # 并非原地翻转
+                # self.distrib[self.idx] = np.flip(
+                #     np.rot90(item["distribution"].reshape((self.board_size, self.board_size)),
+                #              k=i), axis=1).reshape((-1,))
+                # self.winner[self.idx] = item["value"]
+                # self.idx += 1
+                # if self.idx >= self.length:
+                #     self.idx = 0
+                #     self.is_full = True
 
     def get_data(self, batch_size=1):
-
         if self.is_full:  # 满了，随便挑选
             idx = np.random.choice(self.length, size=batch_size, replace=False)
             state = [self.state[i] for i in idx]
