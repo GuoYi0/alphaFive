@@ -6,7 +6,8 @@ import pygame
 import os
 from gobang import CONTINUE, WON_LOST, DRAW
 import numpy as np
-
+from player import Player
+import utils
 
 GRID_WIDTH = 36
 WIDTH = (config.board_size + 2) * GRID_WIDTH
@@ -17,10 +18,12 @@ BLACK = (0, 0, 0)
 HUMAN = 0
 AI = 2
 
+
 def main(trained_ckpt):
     net = Model(config.board_size)
-    net.restore(trained_ckpt)
-    tree = MCTS(config.board_size, net, goal=config.goal)
+    player = Player(config, training=False, pv_fn=net.eval, use_net=False)
+    # net.restore(trained_ckpt)
+    # tree = MCTS(config.board_size, net, goal=config.goal)
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("五子棋")
@@ -31,8 +34,6 @@ def main(trained_ckpt):
     background = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
     back_rect = background.get_rect()
     running = True
-    state = tree.game_process.current_board()
-
 
     def draw_stone(screen_):
         for i in range(config.board_size):
@@ -85,17 +86,30 @@ def main(trained_ckpt):
             ss = file_record[step]
             matrix[ss[0], ss[1]] = stone
             return True
+
     players = [HUMAN, AI]  # 0 表示人类玩家，2表示包含network的AI
-    idx = np.random.randint(2)  # 随机选择一个数，作为最为起始玩家
-    terminal = CONTINUE
+    idx = int(input("input the fist side, (0 human), (1 AI): "))
     if players[idx] == AI:
         print("AI first")
-        state, terminal = tree.interact(ai=AI)
+    else:
+        print("Human first")
+    game_over = False
+    state_str = player.get_init_state()
+    board = utils.state_to_board(state_str, config.board_size)
+    state = board
+    draw_background(screen)
+    # draw_stone(screen)
+    pygame.display.flip()
+    if players[idx] == AI:
+        _, action = player.get_action(state_str)
+        board = utils.step(utils.state_to_board(state_str, config.board_size), action)
+        state_str = utils.board_to_state(board)
+        player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
+        game_over, value = utils.is_game_over(board, config.goal)
+        state = -board
         draw_background(screen)
         draw_stone(screen)
         pygame.display.flip()
-    else:
-        print("human first")
     while running:
         clock.tick(FPS)
         for event in pygame.event.get():
@@ -103,55 +117,39 @@ def main(trained_ckpt):
                 running = False
                 break
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if terminal != CONTINUE:
+                if game_over:
                     continue
                 pos = event.pos
                 if out_of_boundry(pos):
                     continue
                 action = (int((pos[0] - GRID_WIDTH) / GRID_WIDTH), int((pos[1] - GRID_WIDTH) / GRID_WIDTH))
-                if tree.game_process.is_occupied(action):
+                if state[action[0], action[1]] != 0:
                     continue
-                state, terminal = tree.interact(action=action, ai=HUMAN)  # 人类落子
+                board = utils.step(board, action)  # 人类落子
+                state_str = utils.board_to_state(board)
+                player.pruning_tree(board, state_str)
+                game_over, value = utils.is_game_over(board, config.goal)
+                state = board
                 draw_background(screen)
                 draw_stone(screen)
                 pygame.display.flip()
-                if terminal != CONTINUE:
+                if game_over:
                     break
-                state, terminal = tree.interact(ai=AI)  # AI落子
+                _, action = player.get_action(state_str)
+                board = utils.step(utils.state_to_board(state_str, config.board_size), action)
+                state_str = utils.board_to_state(board)
+                player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
+                game_over, value = utils.is_game_over(board, config.goal)
+                state = -board
         draw_background(screen)
         draw_stone(screen)
         pygame.display.flip()
     pygame.quit()
 
 
-
-
-    # while True:
-    #     clock.tick(FPS)
-    #     for event in pygame.event.get():
-    #         if event.type == pygame.QUIT:
-    #             break
-    #         elif event.type == pygame.MOUSEBUTTONDOWN:
-    #             if terminal == CONTINUE:
-    #                 pos = event.pos
-    #                 if pos[0] < GRID_WIDTH or pos[1] < GRID_WIDTH or pos[0] > WIDTH - GRID_WIDTH or pos[
-    #                     1] > HEIGHT - GRID_WIDTH:
-    #                     pass
-    #                 else:
-    #                     grid = (int((pos[0] - GRID_WIDTH) / GRID_WIDTH), int((pos[1] - GRID_WIDTH) / GRID_WIDTH))
-    #                     state, terminal = tree.human_play(action=grid)  # 玩家落子
-    #                     draw_background(screen)
-    #                     draw_stone(screen)
-    #                     pygame.display.flip()
-    #                     state, terminal = tree.interact_game(terminal=terminal, state=state, ai=AI)  # AI落子
-    #     draw_background(screen)
-    #     draw_stone(screen)
-    #     pygame.display.flip()
-    # pygame.quit()
-
-
 def out_of_boundry(pos):
     return pos[0] < GRID_WIDTH or pos[1] < GRID_WIDTH or pos[0] > WIDTH - GRID_WIDTH or pos[1] > HEIGHT - GRID_WIDTH
+
 
 def print_info(player):
     if player == HUMAN:

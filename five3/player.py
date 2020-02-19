@@ -19,16 +19,18 @@ class State(object):
         self.a = defaultdict(Action)  # key: action, value: ActionState only valid action included
         self.sum_n = 0  # visit count
 
+
 class Player(object):
     def __init__(self, cfg=None, training=True, pv_fn=None, use_net=True):
         self.config = config
         self.pv_fn = pv_fn
         self.training = training
+        # 做成这个样子而不是树状，是因为不同的action序列可能最终得到同一state，做成树状就不利于搜索信息的搜集
         self.tree = defaultdict(State)  # 一个字符串表示的状态到包含信息的状态的映射
         self.root_state = None
         self.use_net = use_net  # True表示使用神经网络，False表示纯mcts
         self.goal = self.config.goal
-        self.tau = 1.0  # 初始温度
+        self.tau = self.config.init_temp  # 初始温度
 
     def get_init_state(self):
         """
@@ -41,7 +43,7 @@ class Player(object):
             fen += chr(ord("a") + self.config.board_size) + '/'
         return fen
 
-    def reset(self, search_tree):
+    def reset(self, search_tree=None):
         self.tree = defaultdict(State) if search_tree is None else search_tree
         self.root_state = None
         self.tau = 1.0  # 初始温度
@@ -59,10 +61,12 @@ class Player(object):
             policy, action = self.get_action(state)
             data.append((state, policy))  # 装初始局面不装最终局面，装的是动作执行之前的局面
             board = utils.step(utils.state_to_board(state, self.config.board_size), action)
+            state = utils.board_to_state(board)
+            self.pruning_tree(board, state)  # 走完一步以后，对其他分支进行剪枝，以节约内存
             game_over, value = utils.is_game_over(board, self.goal)
             assert value != 1.0
-            state = utils.board_to_state(board)
 
+        self.reset()  # 把树重启
         turns = len(data)
         if turns % 2 == 1:
             value = -value
@@ -83,6 +87,8 @@ class Player(object):
         policy = np.zeros((self.config.board_size, self.config.board_size), np.float32)
         most_visit_count = -1
         candidate_actions = list(node.a.keys())
+        if len(candidate_actions) == 0:
+            from IPython import embed; embed(header="calc_policy")
         policy_valid = np.empty((len(candidate_actions),), dtype=np.float32)
         for i, action in enumerate(candidate_actions):
             policy_valid[i] = node.a[action].n
@@ -94,10 +100,15 @@ class Player(object):
             for mv in best_moves:
                 policy[mv[0], mv[1]] = 1.0 / len(best_moves)
             return policy, best_move, best_move
-
+        # 需要先归一化，再取温度，再归一化。否则温度指数容易溢出
+        # policy_valid /= np.maximum(np.sum(policy_valid), 1e-3)
+        policy_valid /= np.max(policy_valid)  # 除以最大值就好了，除以和的话，向下精度损失较大
         policy_valid = np.power(policy_valid, 1 / self.tau)
-        policy_valid /= np.sum(policy_valid)
-        random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=policy_valid))]
+        policy_valid /= np.maximum(np.sum(policy_valid), 1e-8)
+        try:
+            random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=policy_valid))]
+        except:
+            from IPython import embed; embed(header="calc_policy down")
         for i, action in enumerate(candidate_actions):
             policy[action[0], action[1]] = policy_valid[i]
         return policy, best_move, random_action
@@ -109,28 +120,37 @@ class Player(object):
         :return:
         """
         self.root_state = state
-        for i in range(self.config.simulation_per_step):
-            self.MCTS_search(state, [state])
+        if self.use_net:
+            for i in range(self.config.simulation_per_step):
+                self.MCTS_search(state, [state])
+        else:
+            for i in range(self.config.simulation_per_step):
+                self.pure_MCTS_search(state, [state])
         policy, best_move, random_action = self.calc_policy(state)
         if self.training:
             action = random_action
         else:
             action = best_move
-        self.pruning_tree(action)
         return policy, action
 
-    def pruning_tree(self, action):
+    def pruning_tree(self, board: np.ndarray, state: str=None):
         """
-        基于root_state选择了action，然后把其他分支减掉，以节约内存
-        :param action:
+        基于board，对树进行剪枝，把board的祖先状态全部剪掉
+        :param board:
         :return:
         """
-        tree = defaultdict(State)  # 一个字符串表示的状态到包含信息的状态的映射
+        if state is None:
+            state = utils.board_to_state(board)
+        keys = list(self.tree.keys())
+        for key in keys:
+            b = utils.state_to_board(key, self.config.board_size)
+            if key != state \
+                    and np.all(np.where(board == 1, 1, 0) >= np.where(b == 1, 1, 0)) \
+                    and np.all(np.where(board == -1, 1, 0) >= np.where(b == -1, 1, 0)):
+                del self.tree[key]
 
-
-
-
-
+    # def pruning_tree(self, board: np.ndarray, state: str):
+    #     pass
 
     def update_tree(self, v, history: list):
         """
@@ -139,7 +159,7 @@ class Player(object):
         :param history: 包含当前局面的一个棋局，(state, action) pair
         :return:
         """
-        state = history.pop()  # 最近的棋局
+        _ = history.pop()  # 最近的棋局
         #  注意，这里并没有把v赋给当前node
         while len(history) > 0:
             action = history.pop()
@@ -154,13 +174,23 @@ class Player(object):
     def evaluate_and_expand(self, state: str, board: np.ndarray = None):
         if board is None:
             board = utils.state_to_board(state, self.config.board_size)
-        policy, value = self.pv_fn(utils.board_to_inputs(board))
+        policy, value = self.pv_fn(utils.board_to_inputs(board)[np.newaxis, ...])
+        if np.any(np.isnan(policy)):
+            from IPython import embed; embed(header="evaluate_and_expand")
+        legal_moves = utils.get_legal_moves(board)
+        all_p = max(sum([policy[0, action[0] * self.config.board_size + action[1]] for action in legal_moves]), 1e-5)
+        for action in legal_moves:
+            self.tree[state].a[action].p = policy[0, action[0] * self.config.board_size + action[1]] / all_p
+        return value
+
+    def expand(self, state: str, board: np.ndarray = None):
+        if board is None:
+            board = utils.state_to_board(state, self.config.board_size)
         self.tree[state].sum_n = 1
         legal_moves = utils.get_legal_moves(board)
-        all_p = max(sum([policy[action[0] * self.config.board_size + action[1]] for action in legal_moves]), 1e-5)
+        all_p = len(legal_moves)
         for action in legal_moves:
-            self.tree[state].a[action].p = policy[action[0] * self.config.board_size + action[1]] / all_p
-        return value
+            self.tree[state].a[action].p = 1.0 / all_p
 
     def MCTS_search(self, state: str, history: list):
         """
@@ -186,6 +216,27 @@ class Player(object):
             state = utils.board_to_state(board)
             history.append(state)
 
+    def pure_MCTS_search(self, state: str, history: list):
+        """
+        从state出发进行一次MCTS搜索，搜完以后形成一棵树, 没有使用net
+        :param state:
+        :param history:
+        :return:
+        """
+        while True:
+            board = utils.state_to_board(state, self.config.board_size)
+            game_over, v = utils.is_game_over(board, self.goal)  # 落子前检查game over
+            if game_over:
+                self.update_tree(v, history=history)
+                break
+            if state not in self.tree:
+                self.expand(state, board)  # 没出现，则展开
+            sel_action = self.select_action_q_and_u(state)
+            history.append(sel_action)
+            board = utils.step(board, sel_action)
+            state = utils.board_to_state(board)
+            history.append(state)
+
     def UCB_value(self, node, action):
         pass
 
@@ -205,11 +256,14 @@ class Player(object):
         for i, mov in enumerate(action_keys):
             action_state = node.a[mov]
             p_ = action_state.p  # 该动作的先验概率
-            if self.root_state == state:
+            if self.root_state == state and self.training:
                 p_ = (1 - self.config.noise_eps) * p_ + self.config.noise_eps * dirichlet[i]
             scores[i] = action_state.q + self.config.c_puct * p_ * np.sqrt(node.sum_n + 1) / (1 + action_state.n)
-            if action_state.q > (1 - 1e-7):  # q值接近于1的，直接作为最佳结点
-                return mov
+            # if action_state.q > (1 - 1e-7):  # q值接近于1的，直接作为最佳结点
+            #     return mov
         max_score = np.max(scores)
-        act_idx = np.random.choice([idx for idx in range(act_count) if scores[idx] == max_score])
+        try:
+            act_idx = np.random.choice([idx for idx in range(act_count) if scores[idx] == max_score])
+        except:
+            from IPython import embed; embed(header="select_action_q_and_u")
         return action_keys[act_idx]

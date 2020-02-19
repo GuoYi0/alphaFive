@@ -64,13 +64,14 @@ import sys
 #     return board
 #
 #
-b = np.array([[1,0], [0, 0]])
-# print(board_to_state(b))
+b = np.array([[1,0], [-1, 1]])
+# # print(board_to_state(b))
+# #
+# # print(state_to_board(board_to_state(b), 2))
 #
-# print(state_to_board(board_to_state(b), 2))
-
-index = [(0,0), (1,1)]
-g = list(zip(*index))
-b[g[0], g[1]] = -1
-print(b)
-
+# index = [(0,0), (1,1)]
+# g = list(zip(*index))
+# b[g[0], g[1]] = -1
+# print(b)
+b = [1,2,3,4,5,6,]
+print(b[-3:])

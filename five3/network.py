@@ -2,6 +2,7 @@
 import tensorflow as tf
 from functools import reduce
 import numpy as np
+
 DATA_FORMAT = "channels_first"
 
 
@@ -14,43 +15,69 @@ class ResNet(object):
 
     只对初始局面评估，不对最终局面评估
     """
+
     def __init__(self, board_size):
         self.board_size = board_size
-        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 4, board_size, board_size])
-        self.winner = tf.placeholder(dtype=tf.float32, shape=[None])
-        self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size*board_size])
+        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 2, board_size, board_size], name="inputs")
+        self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")
+        self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")
+        self.weights = tf.placeholder(dtype=tf.float32, shape=[None], name="weights")
+        self.training = tf.placeholder(dtype=tf.bool, shape=(), name="training")
         self.value = None
         self.policy = None
         self.entropy = None
         self.log_softmax = None
+        self.prob = None
         self.network()
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
-        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+        self.cross_entropy_loss, self.value_loss, self.total_loss = None, None, None
+        self.construct_loss()
+        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+        # self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+        self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver(max_to_keep=100)
+
+    def construct_loss(self):
+        x_entropy = tf.reduce_sum(tf.multiply(self.distrib, self.log_softmax), axis=1)
+        self.cross_entropy_loss = tf.negative(tf.reduce_mean(x_entropy))  # 用于显示
+        cross_entropy = tf.negative(tf.reduce_mean(tf.multiply(x_entropy, self.weights)))  # 用于实际计算
+        value_loss = tf.squared_difference(self.value, self.winner)
+        self.value_loss = tf.reduce_mean(value_loss)
+        value_loss = tf.reduce_mean(tf.multiply(value_loss, self.weights))
+        L2_loss = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if "bias" not in v.name])
+        self.total_loss = cross_entropy + value_loss + L2_loss * 1e-5
 
     def network(self):
         f = self.inputs
         with tf.variable_scope("bone"):
             f = tf.layers.conv2d(f, 32, 3, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
-            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=tf.nn.elu)
-            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv3", activation=tf.nn.elu)
+            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=None, use_bias=False)
+            f = tf.layers.batch_normalization(f, axis=1, training=self.training, name="bn1")
+            f = tf.nn.elu(f)
+            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv3", activation=None, use_bias=False)
+            f = tf.layers.batch_normalization(f, axis=1, training=self.training, name="bn2")
+            f = tf.nn.elu(f)
 
         with tf.variable_scope("value"):
-            v = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
-            last_dim = reduce(lambda x, y: x*y, v.get_shape().as_list()[1:])
+            v = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=None, use_bias=False)
+            v = tf.layers.batch_normalization(v, axis=1, training=self.training, name="bn1")
+            v = tf.nn.elu(v)
+            last_dim = reduce(lambda x, y: x * y, v.get_shape().as_list()[1:])
             v = tf.reshape(v, (-1, last_dim))
             v = tf.layers.dense(v, 256, activation=tf.nn.elu, name="fc1")
             v = tf.layers.dense(v, 64, activation=tf.nn.elu, name="fc2")
-            self.value = tf.layers.dense(v, 1, activation=tf.nn.tanh, name="fc3")
+            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=tf.nn.tanh, name="fc3"), axis=1)
 
         with tf.variable_scope("policy"):
-            p = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
+            p = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=None, use_bias=False)
+            p = tf.layers.batch_normalization(p, axis=1, training=self.training, name="bn1")
+            p = tf.nn.elu(p)
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
-            self.policy = tf.layers.dense(p, self.board_size*self.board_size, activation=None, name="fc1")
+            self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc1")
             self.log_softmax = tf.nn.log_softmax(self.policy, axis=1)
-            self.entropy = -tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=-1)
+            self.entropy = -tf.reduce_mean(tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=-1))
+            self.prob = tf.nn.softmax(self.policy, axis=1)
 
     def eval(self, inputs):
         """
@@ -58,8 +85,8 @@ class ResNet(object):
         :param inputs:
         :return:
         """
-        policy_, value_ = self.sess.run([self.policy, self.value], feed_dict={self.inputs: inputs})
-        return softmax(policy_), value_
+        prob, value_ = self.sess.run([self.prob, self.value], feed_dict={self.inputs: inputs, self.training:False})
+        return prob, value_
 
     def get_prob(self, inputs):
         """
@@ -82,6 +109,7 @@ class ResNet(object):
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
         else:
             raise FileNotFoundError("Could not find old network weights")
+
 
 def softmax(x):
     x -= np.max(x, axis=1, keepdims=True)
