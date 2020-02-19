@@ -13,11 +13,10 @@ class NODE(object):
     结点不存储游戏画面的信息，只存储父子结点，以及进入各个子结点的动作，自然就可以唯一确定画面了
     """
 
-    def __init__(self, parent, player, p=0.1, state_value=0.0):
+    def __init__(self, parent=None, p: float = 0.1, state_value: float = 0.0):
         self.parent = parent  # 父节点
         self.counter = 0
         self.child = {}  # 子节点
-        self.player = player
         self.p = p  # 该节点被访问的先验概率，由神经网络给出
         self.state_value = state_value
         # self.is_fully_expanded = False  # 新创建的结点没有完全展开
@@ -26,7 +25,7 @@ class NODE(object):
         return len(self.child) == 0
 
     def add_child(self, action: tuple, prior_p):
-        self.child[action] = NODE(parent=self, player=-self.player, p=prior_p)
+        self.child[action] = NODE(parent=self, p=prior_p)
 
     def is_expanded(self):
         return len(self.child) > 0
@@ -51,6 +50,8 @@ class NODE(object):
         # 注意，结点的state_value是指从这个结点出发的价值。父节点（黑手）在挑选子节点（白手）的时候，希望挑选白手state_value最小的那个
         # 故下面式子取个负值，后面则选择最大的那个了
         q = -self.state_value / max(self.counter, 1)
+        # 对于访问次数，分子开了根号，分母没有开根号，让访问次数的重要性渐渐降低，从而增加q的重要性
+        # 访问次数越少，config.Cucb的数值适当调小
         e = self.p * math.sqrt(self.parent.counter) / (self.counter + 1)
         return q + config.Cucb * e
 
@@ -61,6 +62,7 @@ class NODE(object):
             max_counter = np.max(counters)
             act_idx = np.random.choice([idx for idx in range(len(counters)) if counters[idx] == max_counter])
             return acts[int(act_idx)]
+        # 概率正比于 N^(1/t),其中t是温度项
         act_probs = utils.softmax(1.0 / tem * np.log(np.array(counters) + 1e-9))
         p = 0.75 * act_probs + 0.25 * np.random.dirichlet(0.3 * np.ones(act_probs.shape))
         action_idx = np.random.choice(len(acts), p=p)
@@ -76,7 +78,7 @@ class MCTS(object):
         self.board_size = board_size
         self.network = network
         self.simulation_per_step = simulation_per_step  # 每走一步需要先模拟多少步
-        self.current_node = NODE(None, 1)
+        self.current_node = NODE(None)
         self.game_process = game if game is not None else Game(board_size=board_size, goal=goal)  # 主游戏进程
         self.simulate_game = Game(board_size=board_size, goal=goal)  # 模拟游戏
 
@@ -96,7 +98,6 @@ class MCTS(object):
             # begin_time1 = int(time.time())
             # 在当前主游戏的基础上往前探索，该函数执行完毕以后，就形成了一棵以self.current_node为根节点的树，
             expand_count, steps_count = self.simulation()  # 主游戏走一步，模拟游戏要展开和走的步数,这一行最耗时
-            # 返回的是访问次数最多的那个action，而不是ucb值最大的那个？返回的分布不带噪声，用于policy训练
             action, distribution = self.current_node.get_action_probs(board_size=self.board_size, train=train, tem=tmp)
             terminal, state = self.game_process.step(action)
             self.MCTS_step(action)  # 树往前走一步
@@ -121,20 +122,21 @@ class MCTS(object):
             self.simulate_game.simulate_reset(self.game_process.current_board(), self.game_process.last_action)
             current_node = self.current_node  # 指示主游戏当前节点，就地
             state = self.simulate_game.current_board()  # 模拟游戏的当前局面
+            value = None
             while terminal == CONTINUE:
                 steps_simulate += 1  # 模拟走一步
                 if not current_node.is_expanded():
                     valid_move = utils.valid_move(state)
                     assert len(valid_move) > 0  # 因为state不是终止状态，所以有效移动的数目肯定有大于0
-                    state_prob = self.network.get_prob(
+                    state_prob, value = self.network.eval(  # 评估叶子节点
                         utils.trans_to_input(state * self.simulate_game.current_player,
                                              player=self.simulate_game.current_player,
                                              last_action=self.simulate_game.last_action)[np.newaxis, ...])
                     expand_counter += 1
-                    for move in valid_move:
+                    for move in valid_move:  # 展开
                         current_node.add_child(move, state_prob[0, move[0] * self.board_size + move[1]])
-                    current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
-                    terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
+                    # current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
+                    # terminal, state = self.simulate_game.step(action)  # 执行该动作，得到子节点的信息
                     break  # 当前节点没有完全展开，就只展开，然后跳出循环
                 else:  # 当前结点已经展开过，就直接选择一个动作，然后进入下一步
                     current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
@@ -148,12 +150,12 @@ class MCTS(object):
             elif terminal == DRAW:
                 current_node.backup(0)
             else:
-                assert not current_node.is_expanded()
-                # 落子前判断价值。
-                value = self.network.get_value(
-                    utils.trans_to_input(state * self.simulate_game.current_player,
-                                         player=self.simulate_game.current_player,
-                                         last_action=self.simulate_game.last_action)[np.newaxis, ...])
+                assert value is not None
+                # # 落子前判断价值。
+                # value = self.network.get_value(
+                #     utils.trans_to_input(state * self.simulate_game.current_player,
+                #                          player=self.simulate_game.current_player,
+                #                          last_action=self.simulate_game.last_action)[np.newaxis, ...])
                 current_node.backup(value[0])
         # 返回平均展开次数和平均行进步数
         return expand_counter, steps_simulate
@@ -165,18 +167,16 @@ class MCTS(object):
         该函数，只为能让主游戏进程能走上一步
         :return:
         """
-        expand_counter, steps_simulate = 0, 0  # 一次模拟展开的次数， 一次模拟探索的步数
         for _ in range(self.simulation_per_step):  # 一次深入探索
             is_fully_expanded, terminal = True, CONTINUE
-            self.simulate_game.simulate_reset(self.game_process.current_board())  # 用主游戏当前局面初始化模拟局面
+            self.simulate_game.simulate_reset(self.game_process.current_board(),
+                                              self.game_process.last_action)  # 用主游戏当前局面初始化模拟局面
             current_node = self.current_node  # 指示主游戏当前节点，就地
             state = self.simulate_game.current_board()  # 模拟游戏的当前局面
             while terminal == CONTINUE:
-                steps_simulate += 1  # 模拟走一步
                 if not current_node.is_expanded():
                     valid_move = utils.valid_move(state)
                     assert len(valid_move) > 0  # 因为state不是终止状态，所以有效移动的数目肯定有大于0
-                    expand_counter += 1
                     for move in valid_move:
                         current_node.add_child(move, 1.0)
                     current_node, action = current_node.UCB_selection()  # 选出最佳子节点，和跑到该子节点所执行的动作
@@ -193,52 +193,43 @@ class MCTS(object):
             elif terminal == DRAW:
                 current_node.backup(0)
 
-    def MCTS_step(self, action):
-        next_node = self.current_node.child[action]
-        next_node.parent = None  # 主游戏走一步以后，不需要再回溯更新祖先结点
+    def MCTS_step(self, action, human=False):
+        if human:  # 人机交互的时候，人可能选择了一个未展开结点
+            if action not in self.current_node.child:
+                next_node = NODE(None)
+            else:
+                next_node = self.current_node.child[action]
+                next_node.parent = None  # 主游戏走一步以后，不需要再回溯更新祖先结点
+        else:  # 非人机交互，必须要有一个结点
+            assert action in self.current_node.child
+            next_node = self.current_node.child[action]
+            next_node.parent = None  # 主游戏走一步以后，不需要再回溯更新祖先结点
         self.current_node = next_node
 
     def renew(self):
-        self.current_node = NODE(None, 1)
+        self.current_node = NODE(None)
         self.game_process.reset()
         self.simulate_game.reset()
 
-    def interact_game_init(self, ai=True):
-        self.renew()
-        if ai:
-            _, _ = self.simulation()
-        else:
-            self.simulation_pure_MCST()
-        action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
-        terminal, state = self.game_process.step(action)
-        self.MCTS_step(action)
-        return state, terminal, action
-
-    def interact_game(self, action):
-        terminal, state = self.game_process.step(action)
-        return state, terminal
-
-    def interact_game_ai(self, action, terminal, state, ai=True):
-        self.MCTS_step(action)
-        if terminal != CONTINUE:
+    def interact(self, action: tuple = None, ai: int = 0):
+        """
+        外界与游戏进行交互
+        :param action: 输入的动作
+        :param ai: 0表示人类玩家，这时候需要输入一个action；1表示纯MCST，不包含神经网络；2表示包含神经网络
+        :return:
+        """
+        if ai == 0:
+            assert action is not None
+            terminal, state = self.game_process.step(action)
+            self.MCTS_step(action, human=True)
             return state, terminal
-        if ai:
+        elif ai == 1:
+            self.simulation_pure_MCST()
+        elif ai == 2:
             _, _ = self.simulation()
         else:
-            self.simulation_pure_MCST()
+            raise ValueError("Invalid ai:{}".format(ai))
         action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
         terminal, state = self.game_process.step(action)
-        self.MCTS_step(action)
-        return state, terminal
-
-    def interact_game2(self, terminal, state, ai=True):
-        if terminal != CONTINUE:
-            return state, terminal
-        if ai:
-            _, _ = self.simulation()
-        else:
-            self.simulation_pure_MCST()
-        action = self.current_node.get_action_probs(board_size=self.board_size, train=False)
-        terminal, state = self.game_process.step(action)
-        self.MCTS_step(action)
+        self.MCTS_step(action, human=False)
         return state, terminal

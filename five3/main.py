@@ -8,17 +8,24 @@ import os
 import matplotlib.pyplot as plt
 import config
 from gobang import CONTINUE, WON_LOST, DRAW
+from player import Player
 import numpy as np
+import sys
+cur_dir = os.path.dirname(__file__)
+os.chdir(cur_dir)
 
 
-def main(game_file_saved_dict="game_record"):
+PURE_MCST = 1
+AI = 2
+
+
+def main(game_file_saved_dict="game_record", restore=False):
     if not os.path.exists(game_file_saved_dict):
         os.mkdir(game_file_saved_dict)
     net = model(config.board_size)
     stack = utils.RandomStack(board_size=config.board_size, length=10000)
     tree = MCTS(config.board_size, net, simulation_per_step=config.simulation_per_step, goal=config.goal)
-    step = 1
-
+    step = 0
     # 不知道为啥下面这个表达方式有问题
     # cross_entropy = tf.reduce_mean(
     #     tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels=net.distrib, logits=net.policy), -1))
@@ -40,6 +47,8 @@ def main(game_file_saved_dict="game_record"):
     summury_op = tf.summary.merge_all()
     sum_res = None
     # while True:
+    if restore:
+        net.restore(config.ckpt_path)
     while step < config.total_step:
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         print("")
@@ -55,10 +64,6 @@ def main(game_file_saved_dict="game_record"):
         else:
             print("game {}, white win, length:{}, time cost: {}".format(step, game_length, game_time))
         print("game per step, expand: %d, simu_steps:%d" % (int(expand_count), int(steps_count)))
-        # utils.write_file(
-        #     game_record,
-        #     game_file_saved_dict + "/" + time.strftime("%Y%m%d_%H_%M_%S",
-        #                                                time.localtime()) + '_game_step:{}.pkl'.format(step))
         train_data = utils.generate_training_data(game_record=game_record, board_size=config.board_size,
                                                   discount=config.discount)
         stack.push(train_data)
@@ -87,19 +92,20 @@ def next_unused_name(name):
 
 def evaluate(tree, ngames=10):
     wins = np.zeros((2,), dtype=np.int32)  # 前面是AI，后面是纯MCST
+    players = [PURE_MCST, AI]
     for i in range(ngames):  # 玩这么多局游戏
         k = i % 2
-        state, terminal, action = tree.interact_game_init(ai=k % 2 == 1)
-        k += 1
+        terminal = CONTINUE
+        tree.renew()
         while terminal == CONTINUE:
-            state, terminal = tree.interact_game2(terminal=terminal, state=state, ai=k % 2 == 1)
-            k += 1
+            state, terminal = tree.interact(ai=players[k])
+            k = (k + 1) % 2
         if terminal == DRAW:
             continue
         else:
-            wins[k % 2] += 1
+            wins[(k + 1) % 2] += 1
     print("{}:{}".format(wins[0], wins[1]))
 
 
 if __name__ == '__main__':
-    main()
+    main(restore=False)

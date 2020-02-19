@@ -58,9 +58,8 @@ class ResNet(object):
         :param inputs:
         :return:
         """
-        prob = tf.nn.softmax(self.policy, axis=1)
-        prob_, value_ = self.sess.run([prob, self.value], feed_dict={self.inputs: inputs})
-        return prob_, value_
+        policy_, value_ = self.sess.run([self.policy, self.value], feed_dict={self.inputs: inputs})
+        return softmax(policy_), value_
 
     def get_prob(self, inputs):
         """

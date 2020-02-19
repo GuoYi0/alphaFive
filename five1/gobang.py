@@ -21,6 +21,9 @@ class GoBang(object):
         self.passed = 0
         self.last_action = None
 
+    def is_occupied(self, pos):
+        return self.board[pos[0], pos[1]] != 0
+
     def current_board(self):
         return self.board
 
