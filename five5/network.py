@@ -18,7 +18,8 @@ class ResNet(object):
 
     def __init__(self, board_size):
         self.board_size = board_size
-        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 2, board_size, board_size], name="inputs")
+        self.units = 128
+        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, board_size, board_size], name="inputs")
         self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")
         self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")
         self.weights = tf.placeholder(dtype=tf.float32, shape=[None], name="weights")
@@ -47,9 +48,42 @@ class ResNet(object):
         L2_loss = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if "bias" not in v.name and 'bn' not in v.name])
         self.total_loss = cross_entropy + value_loss + L2_loss * 1e-5
 
+    def residual(self, f, name):
+        r = f
+        f = tf.layers.dense(f, self.units, activation=tf.nn.elu, name=name+"_fc1")
+        f = tf.layers.dense(f, self.units, activation=None, name=name+"_fc2")
+        f = tf.nn.elu(r + f)
+        return f
+
     def network(self):
         f = self.inputs
         with tf.variable_scope("bone"):
+            last_dim = reduce(lambda x, y: x * y, f.get_shape().as_list()[1:])
+            f = tf.reshape(f, (-1, last_dim))
+            f = tf.layers.dense(f, 128, activation=tf.nn.elu, name="fc1")
+            f = self.residual(f, "res1")
+            f = self.residual(f, "res2")
+            f = self.residual(f, "res3")
+            f = self.residual(f, "res4")
+
+        with tf.variable_scope("value"):
+            value = self.residual(f, name="res1")
+            value = self.residual(value, name="res2")
+            self.value = tf.squeeze(tf.layers.dense(value, 1, activation=half_tanh, name="fc_v"), axis=1)
+
+        with tf.variable_scope("policy"):
+            policy = self.residual(f, "res1")
+            policy = self.residual(policy, "res2")
+            self.policy = tf.layers.dense(policy, self.board_size * self.board_size, activation=None, name="fc_p")
+
+        self.log_softmax = tf.nn.log_softmax(self.policy, axis=1)
+        self.entropy = -tf.reduce_mean(tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=1))
+        self.prob = tf.nn.softmax(self.policy, axis=1)
+
+    def network2(self):
+        f = self.inputs
+        with tf.variable_scope("bone"):
+            # backbone 参数量，92736
             f = tf.layers.conv2d(f, 32, 3, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
             f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=None, use_bias=False)
             f = tf.layers.batch_normalization(f, axis=1, training=self.training, name="bn1")
@@ -109,6 +143,11 @@ class ResNet(object):
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
         else:
             raise FileNotFoundError("Could not find old network weights")
+
+
+def half_tanh(x):
+    # 让tanh函数平滑一点，有点类似学习率降低了0.5
+    return tf.nn.tanh(x/2)
 
 
 def softmax(x):

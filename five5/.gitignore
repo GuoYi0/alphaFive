@@ -1,0 +1,7 @@
+.git
+.idea
+__pycache__
+*/__pycache__
+ckpt/*
+summary/*
+game_record
