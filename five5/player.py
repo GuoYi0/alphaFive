@@ -94,6 +94,7 @@ class Player(object):
         # 查看policy_valid，发现这里几乎是一个尖峰分布===============
         best_moves = [action for action in candidate_actions if node.a[action].n == most_visit_count]
         best_move = random.choice(best_moves)
+        from IPython import embed; embed()
         self.tau *= self.config.tau_decay_rate
         if self.tau < 0.01:
             for mv in best_moves:

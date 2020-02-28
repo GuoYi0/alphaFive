@@ -1,63 +1,6 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-import pickle
 import random
-
-
-def trans_to_input(state: np.ndarray, player, last_action, type_=np.float32):
-    """
-    本来只需要return state.astype(np.float32)就可以了。这里加上tmp3有助于加快收敛，加上tmp4更加收敛
-    :param state:
-    :param player:
-    :param last_action:
-    :param type_:
-    :return:
-    """
-    # return state.astype(np.float32)
-    tmp1 = np.equal(state, 1).astype(type_)
-    tmp2 = np.equal(state, -1).astype(type_)
-    tmp3 = np.zeros(state.shape, dtype=type_) + player
-    tmp4 = np.zeros(state.shape, dtype=type_)
-    if last_action is not None:
-        tmp4[last_action[0], last_action[1]] = 1
-    out = np.stack([tmp1, tmp2, tmp3, tmp4])
-    return out
-
-
-def valid_move(state: np.ndarray):
-    return [(int(index[0]), int(index[1])) for index in np.argwhere(state == 0)]
-
-
-def write_file(objects, file_name):
-    filewriter = open(file_name, 'wb')
-    pickle.dump(objects, filewriter)
-    filewriter.close()
-
-
-def generate_training_data(game_record, board_size, discount=1.0):
-    """
-    :param game_record: game_record.append({"distribution": distribution, "action": action})
-    :param board_size:
-    :return:
-    """
-    board = np.zeros([board_size, board_size], dtype=np.int8)
-    data = []
-    player = 1
-    last_action = None
-    if game_record[-1]:
-        winner = 0
-    elif len(game_record) % 2 == 0:  # 先手（黑手）赢了
-        winner = 1
-    else:
-        winner = -1  # 后手（白手）赢了
-    for i in range(len(game_record) - 1):
-        state = trans_to_input(board * player, player=player, last_action=last_action, type_=np.int8)
-        data.append({"state": state, "distribution": game_record[i]['distribution'], "value": winner})
-        action = game_record[i]['action']
-        board[action[0], action[1]] = player  # 执行动作
-        last_action = action
-        player, winner = -player, -winner
-    return data
 
 
 class RandomStack(object):
@@ -67,10 +10,24 @@ class RandomStack(object):
         self.length = length
 
     def isEmpty(self):
-        pass
+        return len(self.data) == 0
 
-    def push(self, data: list):
+    def is_full(self):
+        return len(self.data) == self.length
+
+    def push(self, data: list, white_win, count_black, count_white):
+        """
+        因为白棋是后手，为防止坍缩，增大白棋赢的数据
+        :param data:
+        :param white_win:
+        :return:
+        """
         self.data.extend(data)
+        # 下面这句话是在对弈540局以后，为了防止黑白双方输赢差距过大而添加的，分母加4算是一个松弛因子
+        if white_win and random.random() < (count_black-count_white)/(count_white+4):
+            self.data.extend(data)
+        elif not white_win and random.random() < (count_white - count_black)/(count_black+4):
+            self.data.extend(data)
         if len(self.data) > self.length:
             self.data = self.data[-self.length:]
 

@@ -19,7 +19,7 @@ AI = 2
 
 def main(trained_ckpt):
     net = Model(config.board_size)
-    player = Player(config, training=False, pv_fn=net.eval, use_net=True)
+    player = Player(config, training=False, pv_fn=net.eval, use_net=False)
     net.restore(trained_ckpt)
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -90,7 +90,7 @@ def main(trained_ckpt):
             _, action = player.get_action(state_str)
             board = utils.step(utils.state_to_board(state_str, config.board_size), action)
             state_str = utils.board_to_state(board)
-            # player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
+            player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
             game_over, value = utils.is_game_over(board, config.goal)
             if turn %2 ==0:
                 state = board

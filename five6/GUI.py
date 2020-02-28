@@ -19,8 +19,8 @@ AI = 2
 
 def main(trained_ckpt):
     net = Model(config.board_size)
-    player = Player(config, training=False, pv_fn=net.eval, use_net=False)
-    net.restore(trained_ckpt)
+    player = Player(config, training=False, pv_fn=net.eval, use_net=False, q_metric=True)
+    # net.restore(trained_ckpt)
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("五子棋")

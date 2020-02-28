@@ -12,7 +12,7 @@ total_step = 8000
 tau_decay_rate = 0.92  # 温度衰减项，越往后温度应该越低
 # 噪声项
 noise_eps = 0.25
-c_puct = 4.0
+c_puct = 5.0
 dirichlet_alpha = 0.5  # 这个值越大，产生的分布越均匀
 gamma = 0.95  # 权重衰减因子
 init_temp = 1.0  # 初始温度

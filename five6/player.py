@@ -21,8 +21,9 @@ class State(object):
 
 
 class Player(object):
-    def __init__(self, cfg=None, training=True, pv_fn=None, use_net=True):
+    def __init__(self, cfg=None, training=True, pv_fn=None, use_net=True, q_metric=False):
         self.config = config
+        self.q_metric = q_metric
         self.pv_fn = pv_fn
         self.training = training
         # 做成这个样子而不是树状，是因为不同的action序列可能最终得到同一state，做成树状就不利于搜索信息的搜集
@@ -108,6 +109,30 @@ class Player(object):
             policy[action[0], action[1]] = policy_valid[i]
         return policy, best_move, random_action
 
+    def calc_policy_q(self, state):
+        """
+        根据q值来计算策略，
+        :param state:
+        :return: 策略，最佳动作，随机动作
+        """
+        node = self.tree[state]
+        policy = np.zeros((self.config.board_size, self.config.board_size), np.float32)
+        # most_visit_count = -1
+        candidate_actions = list(node.a.keys())
+        policy_valid = np.empty((len(candidate_actions),), dtype=np.float32)
+        for i, action in enumerate(candidate_actions):
+            policy_valid[i] = node.a[action].q
+        best_move = candidate_actions[policy_valid.argmax()]
+        self.tau *= self.config.tau_decay_rate
+        if self.tau < 0.01:
+            policy[best_move[0], best_move[1]] = 1.0
+            return policy, best_move
+        policy_valid = softmax(policy_valid / self.tau)
+        random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=policy_valid))]
+        for i, action in enumerate(candidate_actions):
+            policy[action[0], action[1]] = policy_valid[i]
+        return policy, best_move, random_action
+
     def get_action(self, state):
         """
         从state状态出发搜索
@@ -121,14 +146,17 @@ class Player(object):
         else:
             for i in range(self.config.simulation_per_step):
                 self.pure_MCTS_search(state, [state])
-        policy, best_move, random_action = self.calc_policy(state)
+        if self.q_metric:
+            policy, best_move, random_action = self.calc_policy_q(state)
+        else:
+            policy, best_move, random_action = self.calc_policy(state)
         if self.training:
             action = random_action
         else:
             action = best_move
         return policy, action
 
-    def pruning_tree(self, board: np.ndarray, state: str=None):
+    def pruning_tree(self, board: np.ndarray, state: str = None):
         """
         基于board，对树进行剪枝，把board的祖先状态全部剪掉
         :param board:
@@ -258,3 +286,11 @@ class Player(object):
         max_score = np.max(scores)
         act_idx = np.random.choice([idx for idx in range(act_count) if scores[idx] == max_score])
         return action_keys[act_idx]
+
+
+def softmax(x):
+    m = np.max(x)
+    x -= m
+    ex = np.exp(x)
+    fenmu = np.sum(ex)
+    return ex / fenmu

@@ -1,1 +1,4 @@
 .idea
+learn_pandas.py
+.git
+*/__pycache__/
