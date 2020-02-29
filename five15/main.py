@@ -66,7 +66,7 @@ def main(restore=False):
                 count_white += 1
                 result = utils.WHITE_WIN
             r = stack.push(game_record, result)
-        print("generate data %d, time cost: %ds，avg: %0.3f"%(total_len, game_time, game_time/total_len))
+        print("step %d, generate data %d, time cost: %ds，avg: %0.3f"%(step, total_len, game_time, game_time/total_len))
         if stack.is_full():  # 满了再训练太慢了，但是消除了biase， push成功才训练
             e = k * step + config.noise_eps
             for _ in range(10):
