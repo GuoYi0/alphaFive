@@ -5,3 +5,4 @@ __pycache__
 ckpt/*
 summary/*
 game_record
+data_buffer
