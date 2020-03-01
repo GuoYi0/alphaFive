@@ -146,17 +146,66 @@ import time
 # d = pickle.load(g)
 # g.close()
 # print(d)
-import gc
-import sys
+import multiprocessing
+#
+# # 声明一个全局变量
+# share_var = ["start flag"]
+#
+# def sub_process(process_name):
+#     # 企图像单个进程那样通过global声明使用全局变量
+#     global share_var
+#     share_var.append(process_name)
+#     # 但是很可惜，在多进程中这样引用只能读，修改其他进程不会同步改变
+#     for item in share_var:
+#         print(f"{process_name}-{item}")
+#     pass
+#
+# def main_process():
+#     process_list = []
+#     # 创建进程1
+#     process_name = "process 1"
+#     tmp_process = multiprocessing.Process(target=sub_process,args=(process_name,))
+#     process_list.append(tmp_process)
+#     # 创建进程2
+#     process_name = "process 2"
+#     tmp_process = multiprocessing.Process(target=sub_process, args=(process_name,))
+#     process_list.append(tmp_process)
+#     # 启动所有进程
+#     for process in process_list:
+#         process.start()
+#     for process in process_list:
+#         process.join()
+#
+# if __name__ == "__main__":
+#     main_process()
 
-gc.set_debug(gc.DEBUG_STATS|gc.DEBUG_LEAK)
-a = []
-b = []
-a.append(b)
-print("a refcount", sys.getrefcount(a))
-print("b refcount", sys.getrefcount(b))
+from multiprocessing import Queue, Process
+from concurrent.futures import ProcessPoolExecutor
+import time
 
-del a
-del b
-print(gc.collect())
+def f(q):
+    while True:
+        q.put(10)
+        time.sleep(0.2)
 
+
+def main():
+    executor = ProcessPoolExecutor(max_workers=2)
+    q = Queue(10)
+    executor.submit(f, q)
+    executor.submit(f, q)
+
+    # p1 = Process(target=f, args=(q,))
+    # p1.start()
+    # p2 = Process(target=f, args=(q,))
+    # p2.start()
+    while True:
+        print(q.get(), "====")
+    p1.join()
+    p2.join()
+
+    # print(q.get())
+
+
+if __name__ == "__main__":
+    main()

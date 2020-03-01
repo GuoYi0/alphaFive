@@ -45,6 +45,10 @@ class RandomStack(object):
                 self.data_len = pickle.load(f)
             with open("data_buffer/result.pkl", "rb") as f:
                 self.result = pickle.load(f)
+            self.white_win = self.result.count(WHITE_WIN)
+            self.black_win = self.result.count(BLACK_WIN)
+            print("load data successfully, with length %d" % len(self.data))
+            print("black: white = %d: %d in the memory" % (self.black_win, self.white_win))
         except:
             from IPython import embed; embed()
             pass

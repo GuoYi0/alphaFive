@@ -49,10 +49,11 @@ class RandomStack(object):
                 self.result = pickle.load(f)
             self.white_win = self.result.count(WHITE_WIN)
             self.black_win = self.result.count(BLACK_WIN)
-            print("load data successfully, with length %d , of which black win " % len(self.data))
-            print("black: white = %d: %d in the memory"%(self.white_win, self.black_win))
+            print("load data successfully, with length %d" % len(self.data))
+            print("black: white = %d: %d in the memory" % (self.black_win, self.white_win))
         except:
-            from IPython import embed; embed()
+            from IPython import embed;
+            embed()
             pass
 
     def isEmpty(self):
@@ -72,8 +73,8 @@ class RandomStack(object):
         if self.total_length >= 100:
             t = time()
             print("black: white = %d: %d in the memory, avg_length: %0.1f avg: %0.3fs per piece" % (
-                self.black_win, self.white_win, self.total_length / self.num, (t - self.time)/self.total_length))
-            print("self-play black: %d, white: %d"%(self.self_play_black_win, self.self_play_white_win))
+                self.black_win, self.white_win, self.total_length / self.num, (t - self.time) / self.total_length))
+            print("self-play black: %d, white: %d" % (self.self_play_black_win, self.self_play_white_win))
             self.total_length = self.num = 0
             self.time = t
         # 太短小的数据就舍弃
@@ -97,7 +98,6 @@ class RandomStack(object):
                 self.data_len.append(data_len)  # 长度添加进去
                 self.result.append(result)  # 结果添加进去
                 self.white_win += 1
-
         beyond = len(self.data) - self.length
         if beyond > 0:
             self.data = self.data[beyond:]

@@ -144,4 +144,4 @@ def next_unused_name(name):
 
 
 if __name__ == '__main__':
-    main(restore=False)
+    main(restore=True)
