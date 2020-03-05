@@ -65,14 +65,16 @@ class Player(object):
         game_over = False
         data = []  # 收集(状态，动作)二元组
         value = 0
+        last_action = None
         while not game_over:
-            policy, action = self.get_action(state, e)
-            data.append((state, policy))  # 装初始局面不装最终局面，装的是动作执行之前的局面
+            policy, action = self.get_action(state, e, last_action)
+            data.append((state, policy, last_action))  # 装初始局面不装最终局面，装的是动作执行之前的局面
             board = utils.step(utils.state_to_board(state, self.config.board_size), action)
             state = utils.board_to_state(board)
-            self.pruning_tree(board, state)  # 走完一步以后，对其他分支进行剪枝，以节约内存；注释掉，以节约时间
+            # self.pruning_tree(board, state)  # 走完一步以后，对其他分支进行剪枝，以节约内存；注释掉，以节约时间
             game_over, value = utils.is_game_over(board, self.goal)
             # assert value != 1.0
+            last_action = action
 
         self.reset()  # 把树重启
         turns = len(data)
@@ -81,7 +83,7 @@ class Player(object):
         weights = utils.construct_weights(turns, gamma=self.config.gamma)
         final_data = []
         for i in range(turns):
-            final_data.append((*data[i], value, weights[i]))  # (状态，policy，value， weight)
+            final_data.append((*data[i], value, weights[i]))  # (状态，policy，last_action, value， weight)
             value = -value
         return final_data
 
@@ -101,6 +103,11 @@ class Player(object):
             most_visit_count = node.a[action].n if node.a[action].n > most_visit_count else most_visit_count
         best_moves = [action for action in candidate_actions if node.a[action].n == most_visit_count]
         best_move = random.choice(best_moves)
+
+        # for i, action in enumerate(candidate_actions):
+        #     print(action, node.a[action].n,node.a[action].p)
+        # from IPython import embed; embed()
+
         self.tau *= self.config.tau_decay_rate
         if self.tau < 0.01:
             for mv in best_moves:
@@ -113,10 +120,11 @@ class Player(object):
         policy_valid /= np.sum(policy_valid)
         for i, action in enumerate(candidate_actions):
             policy[action[0], action[1]] = policy_valid[i]
-        p = (1 - e) * policy_valid + e * np.random.dirichlet(0.5 * np.ones(policy_valid.shape[0]))
-        p = p / p.sum()  # 有精度损失，导致其和不是1了
-        random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=p))]
-        return policy, best_move, random_action
+        # p = (1 - e) * policy_valid + e * np.random.dirichlet(0.5 * np.ones(policy_valid.shape[0]))
+        # p = p / p.sum()  # 有精度损失，导致其和不是1了
+        # random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=p))]
+        # return policy, best_move, random_action
+        return policy, best_move, best_move
 
     def calc_policy_q(self, state):
         """
@@ -142,20 +150,15 @@ class Player(object):
             policy[action[0], action[1]] = policy_valid[i]
         return policy, best_move, random_action
 
-    def get_action(self, state, e=0.25):
-        """
-        从state状态出发搜索
-        :param state:
-        :return:
-        """
+    def get_action(self, state, e=0.25, last_action=None):
         self.root_state = state
         for i in range(self.config.simulation_per_step):
-            self.MCTS_search(state, [state])
+            self.MCTS_search(state, [state], last_action)
         policy, best_action, random_action = self.calc_policy(state, e)
-        if self.training:
-            action = random_action
-        else:
-            action = best_action
+        # if self.training:
+        #     action = random_action
+        # else:
+        action = best_action
         return policy, action
 
     def pruning_tree(self, board: np.ndarray, state: str = None):
@@ -193,10 +196,10 @@ class Player(object):
             action_state.w += v
             action_state.q = action_state.w / action_state.n
 
-    def evaluate_and_expand(self, state: str, board: np.ndarray = None):
+    def evaluate_and_expand(self, state: str, board: np.ndarray = None, last_action: tuple=None):
         if board is None:
             board = utils.state_to_board(state, self.config.board_size)
-        data_to_send = utils.board_to_inputs(board)
+        data_to_send = utils.board_to_inputs(board, last_action=last_action)
         if self.pv_fn is not None:
             policy, value = self.pv_fn(data_to_send[np.newaxis, ...])
             policy, value = policy[0], value[0]
@@ -209,7 +212,7 @@ class Player(object):
         all_p = max(sum([policy[action[0] * self.config.board_size + action[1]] for action in legal_moves]), 1e-5)
         for action in legal_moves:
             self.tree[state].a[action].p = policy[action[0] * self.config.board_size + action[1]] / all_p
-        return value  # 去掉batch维度，故去[0]
+        return value
 
     def expand(self, state: str, board: np.ndarray = None):
         if board is None:
@@ -220,13 +223,7 @@ class Player(object):
         for action in legal_moves:
             self.tree[state].a[action].p = 1.0 / all_p
 
-    def MCTS_search(self, state: str, history: list):
-        """
-        从state出发进行一次MCTS搜索，搜完以后形成一棵树
-        :param state:
-        :param history:
-        :return:
-        """
+    def MCTS_search(self, state: str, history: list, last_action: tuple):
         while True:
             board = utils.state_to_board(state, self.config.board_size)
             game_over, v = utils.is_game_over(board, self.goal)  # 落子前检查game over
@@ -235,7 +232,7 @@ class Player(object):
                 break
             if state not in self.tree:
                 # 未出现过的state，则评估然后展开
-                v = self.evaluate_and_expand(state, board)  # 落子前进行评估
+                v = self.evaluate_and_expand(state, board, last_action)  # 落子前进行评估
                 self.update_tree(v, history=history)
                 break
             sel_action = self.select_action_q_and_u(state)
@@ -243,13 +240,9 @@ class Player(object):
             board = utils.step(board, sel_action)
             state = utils.board_to_state(board)
             history.append(state)
+            last_action = sel_action
 
     def select_action_q_and_u(self, state: str) -> tuple:
-        """
-        AlphaZero只在根节点的先验概率处加入dirichlet噪声
-        :param state:
-        :return:
-        """
         node = self.tree[state]
         node.sum_n += 1  # 从这结点出发选择动作，该节点访问次数加一
         action_keys = list(node.a.keys())
@@ -263,11 +256,11 @@ class Player(object):
         for i, mov in enumerate(action_keys):
             action_state = node.a[mov]
             p_ = action_state.p  # 该动作的先验概率
-            if self.root_state == state:
-                # simulation阶段的这个噪声可以防止坍缩，但是收敛却很慢了，噪声系数应该还要调小，或者随着时间逐步减小
-                p_ = 0.85 * p_ + 0.15 * dirichlet[i]
+            if self.root_state == state and self.training:
+                # simulation阶段的这个噪声可以防止坍缩
+                p_ = 0.75 * p_ + 0.25 * dirichlet[i]
             elif self.training:
-                p_ = 0.95 * p_ + 0.05 * dirichlet[i]  # 非根节点添加较小的噪声
+                p_ = 0.9 * p_ + 0.1 * dirichlet[i]  # 非根节点添加较小的噪声
             scores[i] = action_state.q + self.config.c_puct * p_ * np.sqrt(node.sum_n + 1) / (1 + action_state.n)
             q_value[i] = action_state.q
             counts[i] = action_state.n

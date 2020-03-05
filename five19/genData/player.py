@@ -70,7 +70,7 @@ class Player(object):
             data.append((state, policy))  # 装初始局面不装最终局面，装的是动作执行之前的局面
             board = utils.step(utils.state_to_board(state, self.config.board_size), action)
             state = utils.board_to_state(board)
-            self.pruning_tree(board, state)  # 走完一步以后，对其他分支进行剪枝，以节约内存；注释掉，以节约时间
+            # self.pruning_tree(board, state)  # 走完一步以后，对其他分支进行剪枝，以节约内存；注释掉，以节约时间
             game_over, value = utils.is_game_over(board, self.goal)
             # assert value != 1.0
 
@@ -101,6 +101,11 @@ class Player(object):
             most_visit_count = node.a[action].n if node.a[action].n > most_visit_count else most_visit_count
         best_moves = [action for action in candidate_actions if node.a[action].n == most_visit_count]
         best_move = random.choice(best_moves)
+
+        # for i, action in enumerate(candidate_actions):
+        #     print(action, node.a[action].n,node.a[action].p)
+        # from IPython import embed; embed()
+
         self.tau *= self.config.tau_decay_rate
         if self.tau < 0.01:
             for mv in best_moves:
@@ -263,9 +268,9 @@ class Player(object):
         for i, mov in enumerate(action_keys):
             action_state = node.a[mov]
             p_ = action_state.p  # 该动作的先验概率
-            if self.root_state == state:
+            if self.root_state == state and self.training:
                 # simulation阶段的这个噪声可以防止坍缩，但是收敛却很慢了，噪声系数应该还要调小，或者随着时间逐步减小
-                p_ = 0.85 * p_ + 0.15 * dirichlet[i]
+                p_ = 0.8 * p_ + 0.2 * dirichlet[i]
             elif self.training:
                 p_ = 0.95 * p_ + 0.05 * dirichlet[i]  # 非根节点添加较小的噪声
             scores[i] = action_state.q + self.config.c_puct * p_ * np.sqrt(node.sum_n + 1) / (1 + action_state.n)

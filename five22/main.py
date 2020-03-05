@@ -47,10 +47,10 @@ def main(restore=False):
         tf.summary.scalar("total_loss", total_loss)
         tf.summary.scalar("entropy", entropy)
         # log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
-        log_dir = "E:\\alphaFive\\five17\\summary\\log_20200229_11_47_12"
+        log_dir = "E:\\alphaFive\\five22\summary\log_20200303_20_11_49"
         journalist = tf.summary.FileWriter(log_dir, flush_secs=10)
         summury_op = tf.summary.merge_all()
-    step = 842
+    step = 1
     # k = (config.final_eps - config.noise_eps) / config.total_step
     # executor = ProcessPoolExecutor(max_workers=config.max_processes)  # 定义一个进程池，max_workers是最大进程个数
     # 定义列表，每个进程给一个管道,把管道放在Manager里面是为了实现子进程和父进程变量共享。global方式在多进程中也只能读不能写
@@ -58,6 +58,7 @@ def main(restore=False):
     cur_pipes = [net.get_pipes(config) for _ in range(config.max_processes)]  # 手动创建进程不需要Manager()
     # job_lock.acquire(True)
     # q = Manager().Queue(50)  # 最多放置50个item, 进程池必须使用Manager()进行数据通信
+    # 当需要频繁地创建进程的时候，才使用进程池进行管理。手动固定地创建max_processes个进程的话，不需要进程池
     # 进程池的开销比手动创建进程的开销要大一丢丢
     q = Queue(50)  # 用Process手动创建的进程可以使用这个Queue
     # procs = []
@@ -71,20 +72,21 @@ def main(restore=False):
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         data_record, result = q.get(block=True)  # 获取一个item，没有则阻塞
         stack.push(data_record, result)
-        for _ in range(4):
-            boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
-            xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
-                [cross_entropy, value_loss, entropy, opt, summury_op],
-                feed_dict={net.inputs: boards, net.distrib: policies,
-                           net.winner: values, net.weights: weights})
-        step += 1
-        journalist.add_summary(sum_res, step)
-        print(" ")
-        print("step: %d, xcross_loss: %0.3f, mse: %0.3f, entropy: %0.3f" % (step, xcro_loss, mse_, entropy_))
-        if step % 60 == 0:
-            net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
-            stack.save()
-            print("save ckpt and data successfully")
+        if len(stack.data) > 3000:
+            for _ in range(4):
+                boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
+                xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
+                    [cross_entropy, value_loss, entropy, opt, summury_op],
+                    feed_dict={net.inputs: boards, net.distrib: policies,
+                               net.winner: values, net.weights: weights})
+            step += 1
+            journalist.add_summary(sum_res, step)
+            print(" ")
+            print("step: %d, xcross_loss: %0.3f, mse: %0.3f, entropy: %0.3f" % (step, xcro_loss, mse_, entropy_))
+            if step % 60 == 0:
+                net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
+                stack.save()
+                print("save ckpt and data successfully")
     net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
 
     stack.save()
@@ -99,7 +101,7 @@ def gen_data(pipe, q):
     while True:
         e = k*step + config.noise_eps
         game_record = player.run(e)
-        value = game_record[-1][2]
+        value = game_record[-1][-2]
         game_length = len(game_record)
         if value == 0.0:
             result = utils.DRAW

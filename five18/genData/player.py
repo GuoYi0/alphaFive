@@ -101,6 +101,11 @@ class Player(object):
             most_visit_count = node.a[action].n if node.a[action].n > most_visit_count else most_visit_count
         best_moves = [action for action in candidate_actions if node.a[action].n == most_visit_count]
         best_move = random.choice(best_moves)
+
+        for i, action in enumerate(candidate_actions):
+            print(action, node.a[action].n,node.a[action].p)
+        from IPython import embed; embed()
+
         self.tau *= self.config.tau_decay_rate
         if self.tau < 0.01:
             for mv in best_moves:

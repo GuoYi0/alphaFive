@@ -25,19 +25,14 @@ AI = 2
 
 
 def main(restore=False):
-    stack = RandomStack(board_size=config.board_size, length=7000)
-    # manager = BaseManager()
-    # manager.register('RandomStack', RandomStack)
-    # manager.start()
-    # stack = manager.RandomStack(board_size=config.board_size, length=8000)  # 注册一个变量，以实现父子进程共享这个stack
-    # job_lock = Manager().Lock()
-    # e = Manager().Value('f', config.noise_eps)
+    stack = RandomStack(board_size=config.board_size, length=config.buffer_size)
     net = model(config.board_size)
     if restore:
         net.restore(config.ckpt_path)
-        stack.load()
-        # print(stack.black_win, "in the main function")
+        # net.load_pretrained()
+        # stack.load()
     with net.graph.as_default():
+        episode_length = tf.placeholder(tf.float32, (), "episode_length")
         total_loss, cross_entropy, value_loss, entropy = net.total_loss, net.cross_entropy_loss, net.value_loss, net.entropy
         lr = tf.get_variable("learning_rate", dtype=tf.float32, initializer=1e-3)
         opt = tf.train.AdamOptimizer(lr).minimize(total_loss)
@@ -46,11 +41,12 @@ def main(restore=False):
         tf.summary.scalar("value_loss", value_loss)
         tf.summary.scalar("total_loss", total_loss)
         tf.summary.scalar("entropy", entropy)
-        # log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
-        log_dir = "E:\\alphaFive\\five17\\summary\\log_20200229_11_47_12"
+        tf.summary.scalar('episode_len', episode_length)
+        log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
+        # log_dir = "E:\\alphaFive\\five22\summary\log_20200303_20_11_49"
         journalist = tf.summary.FileWriter(log_dir, flush_secs=10)
         summury_op = tf.summary.merge_all()
-    step = 842
+    step = 1
     # k = (config.final_eps - config.noise_eps) / config.total_step
     # executor = ProcessPoolExecutor(max_workers=config.max_processes)  # 定义一个进程池，max_workers是最大进程个数
     # 定义列表，每个进程给一个管道,把管道放在Manager里面是为了实现子进程和父进程变量共享。global方式在多进程中也只能读不能写
@@ -58,6 +54,7 @@ def main(restore=False):
     cur_pipes = [net.get_pipes(config) for _ in range(config.max_processes)]  # 手动创建进程不需要Manager()
     # job_lock.acquire(True)
     # q = Manager().Queue(50)  # 最多放置50个item, 进程池必须使用Manager()进行数据通信
+    # 当需要频繁地创建进程的时候，才使用进程池进行管理。手动固定地创建max_processes个进程的话，不需要进程池
     # 进程池的开销比手动创建进程的开销要大一丢丢
     q = Queue(50)  # 用Process手动创建的进程可以使用这个Queue
     # procs = []
@@ -71,20 +68,21 @@ def main(restore=False):
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         data_record, result = q.get(block=True)  # 获取一个item，没有则阻塞
         stack.push(data_record, result)
-        for _ in range(4):
-            boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
-            xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
-                [cross_entropy, value_loss, entropy, opt, summury_op],
-                feed_dict={net.inputs: boards, net.distrib: policies,
-                           net.winner: values, net.weights: weights})
-        step += 1
-        journalist.add_summary(sum_res, step)
-        print(" ")
-        print("step: %d, xcross_loss: %0.3f, mse: %0.3f, entropy: %0.3f" % (step, xcro_loss, mse_, entropy_))
-        if step % 60 == 0:
-            net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
-            stack.save()
-            print("save ckpt and data successfully")
+        if len(stack.data) > 4000:
+            for _ in range(4):
+                boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
+                xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
+                    [cross_entropy, value_loss, entropy, opt, summury_op],
+                    feed_dict={net.inputs: boards, net.distrib: policies,
+                               net.winner: values, net.weights: weights, episode_length: len(data_record)})
+            step += 1
+            journalist.add_summary(sum_res, step)
+            print(" ")
+            print("step: %d, xcross_loss: %0.3f, mse: %0.3f, entropy: %0.3f" % (step, xcro_loss, mse_, entropy_))
+            if step % 60 == 0:
+                net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
+                stack.save()
+                print("save ckpt and data successfully")
     net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
 
     stack.save()
@@ -99,7 +97,7 @@ def gen_data(pipe, q):
     while True:
         e = k*step + config.noise_eps
         game_record = player.run(e)
-        value = game_record[-1][2]
+        value = game_record[-1][-2]
         game_length = len(game_record)
         if value == 0.0:
             result = utils.DRAW
@@ -121,4 +119,4 @@ def next_unused_name(name):
 
 
 if __name__ == '__main__':
-    main(restore=True)
+    main(restore=False)
