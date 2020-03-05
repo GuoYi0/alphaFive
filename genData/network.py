@@ -25,13 +25,11 @@ class ResNet(object):
         self.entropy = None
         self.log_softmax = None
         self.prob = None
-        self.network2()
+        self.network()
         self.cross_entropy_loss, self.value_loss, self.total_loss = None, None, None
         self.construct_loss()
         gpu_options = tf.GPUOptions(allow_growth=True)
         self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
-        # self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
         # self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver(max_to_keep=10000)
@@ -55,7 +53,7 @@ class ResNet(object):
         f = tf.layers.conv2d(f, units, 3, padding="SAME", data_format=DATA_FORMAT, name=name+"_conv2", activation=None)
         return tf.nn.elu(tf.add(res, f, name+"_add"), "elu")
 
-    def network2(self):
+    def network(self):
         # total params 44w
         f = self.inputs
         with tf.variable_scope("bone"):
@@ -66,13 +64,18 @@ class ResNet(object):
 
         with tf.variable_scope("value"):
             v = self.residual(f, 32, "block3")
+            # 为全连接层降低参数量
+            v = tf.layers.conv2d(v, 4, 1, padding="SAME", data_format=DATA_FORMAT, name="conv", activation=tf.nn.elu)
             last_dim = reduce(lambda x, y: x * y, v.get_shape().as_list()[1:])
             v = tf.reshape(v, (-1, last_dim))
-            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=half_tanh, name="fc"), axis=1)
+            v = tf.layers.dense(v, 64, activation=tf.nn.elu, name="fc1")
+            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=half_tanh, name="fc2"), axis=1)
 
         with tf.variable_scope("policy"):
             p = self.residual(f, 64, "block4")
-            p = tf.layers.conv2d(p, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv", activation=tf.nn.elu)
+            p = self.residual(p, 32, "block5")
+            # 为全连接层降低参数量
+            p = tf.layers.conv2d(p, 8, 1, padding="SAME", data_format=DATA_FORMAT, name="conv", activation=tf.nn.elu)
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
             self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc")
