@@ -6,3 +6,4 @@ ckpt/*
 summary/*
 game_record
 data_buffer
+test.py
