@@ -57,7 +57,7 @@ def main(restore=False):
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         data_record, result = q.get(block=True)  # 获取一个item，没有则阻塞
         r = stack.push(data_record, result)
-        if r:
+        if r and len(stack.data) >= 6000:
             for _ in range(4):
                 boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
                 xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
@@ -70,7 +70,7 @@ def main(restore=False):
             print("step: %d, xcross_loss: %0.3f, mse: %0.3f, entropy: %0.3f" % (step, xcro_loss, mse_, entropy_))
             if step % 60 == 0:
                 net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
-                stack.save()
+                stack.save(step)
                 print("save ckpt and data successfully")
     net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
     stack.save()

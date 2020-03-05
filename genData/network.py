@@ -34,7 +34,7 @@ class ResNet(object):
         # self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
         # self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
-        self.saver = tf.train.Saver(max_to_keep=1000)
+        self.saver = tf.train.Saver(max_to_keep=10000)
         self.api = None
 
     def construct_loss(self):

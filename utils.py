@@ -26,26 +26,26 @@ class RandomStack(object):
         self.self_play_black_win = 0
         self.self_play_white_win = 0
 
-    def save(self):
-        f1 = open("data_buffer/data.pkl", "wb")
+    def save(self, s=""):
+        f1 = open(f"data_buffer/data{s}.pkl", "wb")
         pickle.dump(self.data, f1)
         f1.close()
 
-        f1 = open("data_buffer/data_len.pkl", "wb")
+        f1 = open(f"data_buffer/data_len{s}.pkl", "wb")
         pickle.dump(self.data_len, f1)
         f1.close()
 
-        f1 = open("data_buffer/result.pkl", "wb")
+        f1 = open(f"data_buffer/result{s}.pkl", "wb")
         pickle.dump(self.result, f1)
         f1.close()
 
-    def load(self):
+    def load(self, s=""):
         try:
-            with open("data_buffer/data.pkl", "rb") as f:
+            with open(f"data_buffer/data{s}.pkl", "rb") as f:
                 self.data = pickle.load(f)
-            with open("data_buffer/data_len.pkl", "rb") as f:
+            with open(f"data_buffer/data_len{s}.pkl", "rb") as f:
                 self.data_len = pickle.load(f)
-            with open("data_buffer/result.pkl", "rb") as f:
+            with open(f"data_buffer/result{s}.pkl", "rb") as f:
                 self.result = pickle.load(f)
             self.white_win = self.result.count(WHITE_WIN)
             self.black_win = self.result.count(BLACK_WIN)

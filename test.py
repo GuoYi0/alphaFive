@@ -224,7 +224,4 @@ import json, time, os
 #     for i in range(15):
 #         p = Process(target=task, args=(lock,))
 #         p.start()
-a = np.arange(12).reshape(3,4)
-print(a)
-print("=============================")
-print(np.flip(a, 0))
+print(f"jaja{'d'}")

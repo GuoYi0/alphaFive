@@ -107,8 +107,7 @@ class Player(object):
             for a in best_actions:
                 policy[a[0], a[1]] = 1.0 / len(best_actions)
             return policy, best_action
-        # 需要先归一化，再取温度，再归一化。否则温度指数容易溢出
-        policy_valid /= np.max(policy_valid)  # 除以最大值就好了
+        policy_valid /= np.max(policy_valid)  # 除以最大值,再取指数，以免溢出
         policy_valid = np.power(policy_valid, 1 / self.tau)
         policy_valid /= np.sum(policy_valid)
         for i, action in enumerate(candidate_actions):
