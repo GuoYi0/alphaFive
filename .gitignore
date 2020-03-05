@@ -1,5 +1,8 @@
-.idea
-learn_pandas.py
 .git
-*/__pycache__/
+.idea
 __pycache__
+*/__pycache__
+ckpt/*
+summary/*
+game_record
+data_buffer

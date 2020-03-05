@@ -12,11 +12,9 @@ class ResNet(object):
     """
     针对当前局面进行评估
     """
-
     def __init__(self, board_size):
         self.graph = tf.get_default_graph()
         self.board_size = board_size
-        self.units = 200
         self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 3, board_size, board_size], name="inputs")
         self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")
         self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")
@@ -42,86 +40,42 @@ class ResNet(object):
     def construct_loss(self):
         x_entropy = tf.reduce_sum(tf.multiply(self.distrib, self.log_softmax), axis=1)
         self.cross_entropy_loss = tf.negative(tf.reduce_mean(x_entropy))  # 用于显示
-        # cross_entropy = tf.negative(tf.reduce_mean(tf.multiply(x_entropy, self.weights)))  # 用于实际计算
+        weighted_x_entropy = tf.negative(tf.reduce_mean(tf.multiply(x_entropy, self.weights)))  # 用于实际计算
         value_loss = tf.squared_difference(self.value, self.winner)
         self.value_loss = tf.reduce_mean(value_loss)
-        value_loss = tf.reduce_mean(tf.multiply(value_loss, self.weights))
+        weighted_value_loss = tf.reduce_mean(tf.multiply(value_loss, self.weights))
         L2_loss = tf.add_n(
             [tf.nn.l2_loss(v) for v in tf.trainable_variables() if "bias" not in v.name and 'bn' not in v.name])
         # self.total_loss = cross_entropy + value_loss + L2_loss * 1e-5
-        self.total_loss = self.cross_entropy_loss + value_loss + L2_loss * 1e-5
+        self.total_loss = weighted_x_entropy + weighted_value_loss + L2_loss * 4e-5
 
-    def residual(self, f, name):
-        # 参数量 8w
-        r = f
-        f = tf.layers.dense(f, self.units, activation=tf.nn.elu, name=name + "_fc1")
-        f = tf.layers.dense(f, self.units, activation=None, name=name + "_fc2")
-        f = tf.nn.elu(r + f)
-        return f
-
-    def network(self):
-        # total params 51w
-        f = self.inputs
-        with tf.variable_scope("bone"):
-            # 参数量，26w
-            last_dim = reduce(lambda x, y: x * y, f.get_shape().as_list()[1:])
-            f = tf.reshape(f, (-1, last_dim))
-            f = tf.layers.dense(f, self.units, activation=tf.nn.elu, name="fc1")
-            f = self.residual(f, "res1")
-            f = self.residual(f, "res2")
-            f = self.residual(f, "res3")
-            # f = self.residual(f, "res4")
-
-        with tf.variable_scope("value"):
-            # 8w
-            value = self.residual(f, name="res1")
-            # value = self.residual(value, name="res2")
-            # value = tf.layers.dense(value, 64, activation=tf.nn.elu, name="fc")
-            self.value = tf.squeeze(tf.layers.dense(value, 1, activation=half_tanh, name="fc_v"), axis=1)
-
-        with tf.variable_scope("policy"):
-            # 18w
-            policy = self.residual(f, "res1")
-            policy = self.residual(policy, "res2")
-            # policy = tf.layers.dense(policy, 128, activation=tf.nn.elu, name="fc")
-            self.policy = tf.layers.dense(policy, self.board_size * self.board_size, activation=None, name="fc_p")
-
-        self.log_softmax = tf.nn.log_softmax(self.policy, axis=1)
-        self.entropy = -tf.reduce_mean(tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=1))
-        self.prob = tf.nn.softmax(self.policy, axis=1)
-
-    def residual_conv(self, f, units, name):
-        # params: in_channel*units*9 + units*units*9
-        i = f
-        f = tf.layers.conv2d(f, units, 3, padding="SAME", data_format=DATA_FORMAT,
-                             name=name+"_conv1", activation=tf.nn.elu)
-        f = tf.layers.conv2d(f, units, 3, padding="SAME", data_format=DATA_FORMAT, name=name + "_conv2")
-        return tf.nn.elu(f + i)
+    def residual(self, f, units, name):
+        res = tf.layers.conv2d(f, units, 1, padding="VALID", data_format=DATA_FORMAT, name=name+"_res", activation=None)
+        f = tf.layers.conv2d(f, units, 3, padding="SAME", data_format=DATA_FORMAT, name=name+"_conv1", activation=tf.nn.elu)
+        f = tf.layers.conv2d(f, units, 3, padding="SAME", data_format=DATA_FORMAT, name=name+"_conv2", activation=None)
+        return tf.nn.elu(tf.add(res, f, name+"_add"), "elu")
 
     def network2(self):
-        # total params 37w
+        # total params 44w
         f = self.inputs
         with tf.variable_scope("bone"):
             # params: 13w
-            f = tf.layers.conv2d(f, 32, 5, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu) # 800
-            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=tf.nn.elu) # 18432
-            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv3", activation=tf.nn.elu)  # 36864
-            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv4", activation=tf.nn.elu) # 73728
+            f = tf.layers.conv2d(f, 32, 5, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
+            f = self.residual(f, 64, "block1")
+            f = self.residual(f, 128, "block2")
 
         with tf.variable_scope("value"):
-            # 6688
-            v = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)  # 4096
+            v = self.residual(f, 32, "block3")
             last_dim = reduce(lambda x, y: x * y, v.get_shape().as_list()[1:])
             v = tf.reshape(v, (-1, last_dim))
-            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=tf.nn.tanh, name="fc3"), axis=1)  # 2592
+            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=half_tanh, name="fc"), axis=1)
 
         with tf.variable_scope("policy"):
-            # 24w
-            p = tf.layers.conv2d(f, 64, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu) # 8192
-            p = tf.layers.conv2d(p, 16, 3, padding="VALID", data_format=DATA_FORMAT, name="conv2", activation=tf.nn.elu) # 9216
+            p = self.residual(f, 64, "block4")
+            p = tf.layers.conv2d(p, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv", activation=tf.nn.elu)
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
-            self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc_p")
+            self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc")
         self.log_softmax = tf.nn.log_softmax(self.policy, axis=1)
         self.entropy = -tf.reduce_mean(tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=1))
         self.prob = tf.nn.softmax(self.policy, axis=1)
