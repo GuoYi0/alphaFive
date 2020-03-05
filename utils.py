@@ -229,7 +229,7 @@ def is_game_over(board: np.ndarray, goal: int) -> tuple:
     return False, 0.0
 
 
-def get_legal_moves(board: np.ndarray):
+def get_legal_actions(board: np.ndarray):
     zeros = np.where(board == 0)
     return [(int(i), int(j)) for i, j in zip(*zeros)]
 

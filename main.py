@@ -28,8 +28,7 @@ def main(restore=False):
     stack = RandomStack(board_size=config.board_size, length=config.buffer_size)
     net = model(config.board_size)
     if restore:
-        # net.restore(config.ckpt_path)
-        net.load_pretrained("E:\\alphaFive\\five24\\ckpt\\alphaFive-2820")
+        net.restore(config.ckpt_path)
         stack.load()
     with net.graph.as_default():
         episode_length = tf.placeholder(tf.float32, (), "episode_length")
@@ -47,22 +46,12 @@ def main(restore=False):
         journalist = tf.summary.FileWriter(log_dir, flush_secs=10)
         summury_op = tf.summary.merge_all()
     step = 1
-    # k = (config.final_eps - config.noise_eps) / config.total_step
-    # executor = ProcessPoolExecutor(max_workers=config.max_processes)  # 定义一个进程池，max_workers是最大进程个数
-    # 定义列表，每个进程给一个管道,把管道放在Manager里面是为了实现子进程和父进程变量共享。global方式在多进程中也只能读不能写
-    # cur_pipes = Manager().list([net.get_pipes(config) for _ in range(config.max_processes)])  # 进程池必须要用Manager()
     cur_pipes = [net.get_pipes(config) for _ in range(config.max_processes)]  # 手动创建进程不需要Manager()
-    # job_lock.acquire(True)
-    # q = Manager().Queue(50)  # 最多放置50个item, 进程池必须使用Manager()进行数据通信
-    # 当需要频繁地创建进程的时候，才使用进程池进行管理。手动固定地创建max_processes个进程的话，不需要进程池
-    # 进程池的开销比手动创建进程的开销要大一丢丢
     q = Queue(50)  # 用Process手动创建的进程可以使用这个Queue
-    # procs = []
     for i in range(config.max_processes):
         proc = Process(target=gen_data, args=(cur_pipes[i], q))
         proc.daemon = True  # 父进程结束以后，子进程就自动结束
         proc.start()
-        # executor.submit(gen_data, cur_pipes, q)  # 进程池的开销比较大，只是适用于创建大量进程，难以手动管理的情形
 
     while step < config.total_step:
         net.sess.run(tf.assign(lr, config.get_lr(step)))
@@ -84,19 +73,14 @@ def main(restore=False):
                 stack.save()
                 print("save ckpt and data successfully")
     net.saver.save(net.sess, save_path=os.path.join(config.ckpt_path, "alphaFive"), global_step=step)
-
     stack.save()
-    # executor.shutdown(False)
     net.close()
 
 
 def gen_data(pipe, q):
     player = Player(config, training=True, pipe=pipe)
-    k = (config.final_eps - config.noise_eps) / config.total_step
-    step = 1
     while True:
-        e = k*step + config.noise_eps
-        game_record = player.run(e)
+        game_record = player.run()
         value = game_record[-1][-2]
         game_length = len(game_record)
         if value == 0.0:
@@ -106,7 +90,6 @@ def gen_data(pipe, q):
         else:
             result = utils.WHITE_WIN
         q.put((game_record, result), block=True)  # block=True满了则阻塞
-        step += config.max_processes
 
 
 def next_unused_name(name):
