@@ -102,26 +102,37 @@ class ResNet(object):
         f = self.inputs
         with tf.variable_scope("bone"):
             # params: 13w
-            f = tf.layers.conv2d(f, 32, 5, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu) # 800
-            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=tf.nn.elu) # 18432
-            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv3", activation=tf.nn.elu) # 36864
-            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv4", activation=tf.nn.elu) # 73728
-            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv5", activation=tf.nn.elu) # 73728
+            f = tf.layers.conv2d(f, 32, 5, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
+
+            res = tf.layers.conv2d(f, 64, 1, padding="VALID", data_format=DATA_FORMAT, name="res1", activation=None)
+            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=tf.nn.elu)
+            f = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv3", activation=None)
+            f = tf.nn.elu(res+f)
+
+            res = tf.layers.conv2d(f, 128, 1, padding="VALID", data_format=DATA_FORMAT, name="res2", activation=None)
+            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv4", activation=tf.nn.elu)
+            f = tf.layers.conv2d(f, 128, 3, padding="SAME", data_format=DATA_FORMAT, name="conv5", activation=None)
+            f = tf.nn.elu(f+res)
 
         with tf.variable_scope("value"):
-            # 6688
-            v = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu) # 4096
+            res = tf.layers.conv2d(f, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="resv", activation=None)
+            v = tf.layers.conv2d(f, 32, 3, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
+            v = tf.layers.conv2d(v, 32, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=None)
+            v = tf.nn.elu(res + v)
             last_dim = reduce(lambda x, y: x * y, v.get_shape().as_list()[1:])
             v = tf.reshape(v, (-1, last_dim))
-            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=tf.nn.tanh, name="fc3"), axis=1)  # 2592
+            self.value = tf.squeeze(tf.layers.dense(v, 1, activation=half_tanh, name="fc"), axis=1)
 
         with tf.variable_scope("policy"):
             # 24w
-            p = tf.layers.conv2d(f, 64, 1, padding="VALID", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu) # 8192
-            p = tf.layers.conv2d(p, 16, 3, padding="VALID", data_format=DATA_FORMAT, name="conv2", activation=tf.nn.elu) # 9216
+            res = tf.layers.conv2d(f, 64, 1, padding="VALID", data_format=DATA_FORMAT, name="resp", activation=None)
+            p = tf.layers.conv2d(f, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv1", activation=tf.nn.elu)
+            p = tf.layers.conv2d(p, 64, 3, padding="SAME", data_format=DATA_FORMAT, name="conv2", activation=None)
+            p = tf.nn.elu(res+p)
+            p = tf.layers.conv2d(p, 32, 1, padding="VALID", data_format=DATA_FORMAT, name="conv3", activation=tf.nn.elu)
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
-            self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc_p")
+            self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc")
         self.log_softmax = tf.nn.log_softmax(self.policy, axis=1)
         self.entropy = -tf.reduce_mean(tf.reduce_sum(tf.nn.softmax(self.policy) * self.log_softmax, axis=1))
         self.prob = tf.nn.softmax(self.policy, axis=1)
