@@ -120,7 +120,8 @@ class Player(object):
 
     def get_action(self, state, e=0.25, last_action=None):
         self.root_state = state
-        for i in range(self.config.simulation_per_step):
+        # 该节点已经被访问了sum_n次，最多访问600次好了，节约点时间
+        for i in range(min(self.config.simulation_per_step, 600-self.tree[state].sum_n)):
             self.MCTS_search(state, [state], last_action)
         policy, action = self.calc_policy(state, e)
         return policy, action
@@ -208,7 +209,7 @@ class Player(object):
                 # simulation阶段的这个噪声可以防止坍缩
                 p_ = 0.75 * p_ + 0.25 * dirichlet[i]
             elif self.training:
-                p_ = 0.85 * p_ + 0.15 * dirichlet[i]  # 非根节点添加较小的噪声
+                p_ = 0.9 * p_ + 0.1 * dirichlet[i]  # 非根节点添加较小的噪声
             scores[i] = action_state.q + self.config.c_puct * p_ * np.sqrt(node.sum_n + 1) / (1 + action_state.n)
             q_value[i] = action_state.q
             counts[i] = action_state.n
