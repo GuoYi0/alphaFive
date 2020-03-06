@@ -121,7 +121,8 @@ class Player(object):
     def get_action(self, state, e=0.25, last_action=None):
         self.root_state = state
         # 该节点已经被访问了sum_n次，最多访问600次好了，节约点时间
-        for i in range(min(self.config.simulation_per_step, 600-self.tree[state].sum_n)):
+        num = min(self.config.simulation_per_step, self.config.upper_simulation_per_step-self.tree[state].sum_n)
+        for i in range(num):
             self.MCTS_search(state, [state], last_action)
         policy, action = self.calc_policy(state, e)
         return policy, action
