@@ -57,7 +57,7 @@ def main(restore=False):
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         data_record, result = q.get(block=True)  # 获取一个item，没有则阻塞
         r = stack.push(data_record, result)
-        if r:
+        if r and stack.is_full():  # 满了再训练会比较慢，但是消除了biase
             for _ in range(4):
                 boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
                 xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
