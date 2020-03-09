@@ -41,8 +41,8 @@ def main(restore=False):
         tf.summary.scalar("total_loss", total_loss)
         tf.summary.scalar("entropy", entropy)
         tf.summary.scalar('episode_len', episode_length)
-        # log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
-        log_dir = "E:\\alphaFive\\summary\\log_20200306_10_12_42"
+        log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
+        # log_dir = "E:\\alphaFive\\summary\\log_20200306_10_12_42"
         journalist = tf.summary.FileWriter(log_dir, flush_secs=10)
         summury_op = tf.summary.merge_all()
     step = 781
@@ -102,4 +102,4 @@ def next_unused_name(name):
 
 
 if __name__ == '__main__':
-    main(restore=True)
+    main(restore=False)
