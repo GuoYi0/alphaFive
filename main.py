@@ -29,7 +29,7 @@ def main(restore=False):
     net = model(config.board_size)
     if restore:
         net.restore(config.ckpt_path)
-        stack.load()
+        stack.load(780)
     with net.graph.as_default():
         episode_length = tf.placeholder(tf.float32, (), "episode_length")
         total_loss, cross_entropy, value_loss, entropy = net.total_loss, net.cross_entropy_loss, net.value_loss, net.entropy
@@ -41,10 +41,11 @@ def main(restore=False):
         tf.summary.scalar("total_loss", total_loss)
         tf.summary.scalar("entropy", entropy)
         tf.summary.scalar('episode_len', episode_length)
-        log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
+        # log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
+        log_dir = "E:\\alphaFive\\summary\\log_20200306_10_12_42"
         journalist = tf.summary.FileWriter(log_dir, flush_secs=10)
         summury_op = tf.summary.merge_all()
-    step = 1
+    step = 781
     cur_pipes = [net.get_pipes(config) for _ in range(config.max_processes)]  # 手动创建进程不需要Manager()
     q = Queue(50)  # 用Process手动创建的进程可以使用这个Queue
     for i in range(config.max_processes):
@@ -56,7 +57,7 @@ def main(restore=False):
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         data_record, result = q.get(block=True)  # 获取一个item，没有则阻塞
         r = stack.push(data_record, result)
-        if r and len(stack.data) >= 6000:
+        if r:
             for _ in range(4):
                 boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
                 xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
@@ -101,4 +102,4 @@ def next_unused_name(name):
 
 
 if __name__ == '__main__':
-    main(restore=False)
+    main(restore=True)

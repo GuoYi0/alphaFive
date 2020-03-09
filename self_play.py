@@ -19,7 +19,7 @@ AI = 2
 
 def main(trained_ckpt):
     net = Model(config.board_size)
-    player = Player(config, training=False, pv_fn=net.eval)
+    player = Player(config, training=True, pv_fn=net.eval)
     net.restore(trained_ckpt)
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))

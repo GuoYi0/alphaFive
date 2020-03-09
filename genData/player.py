@@ -120,8 +120,11 @@ class Player(object):
 
     def get_action(self, state, e=0.25, last_action=None):
         self.root_state = state
-        # 该节点已经被访问了sum_n次，最多访问600次好了，节约点时间
-        num = min(self.config.simulation_per_step, self.config.upper_simulation_per_step-self.tree[state].sum_n)
+        # # 该节点已经被访问了sum_n次，最多访问642次好了，节约点时间
+        if state not in self.tree:
+            num = self.config.simulation_per_step
+        else:
+            num = min(self.config.simulation_per_step, self.config.upper_simulation_per_step-self.tree[state].sum_n)
         for i in range(num):
             self.MCTS_search(state, [state], last_action)
         policy, action = self.calc_policy(state, e)
@@ -203,10 +206,10 @@ class Player(object):
         scores = np.empty((act_count,), np.float32)
         q_value = np.empty((act_count,), np.float32)
         counts = np.empty((act_count,), np.int32)
-        for i, mov in enumerate(action_keys):
-            action_state = node.a[mov]
+        for i, ac in enumerate(action_keys):
+            action_state = node.a[ac]
             p_ = action_state.p  # 该动作的先验概率
-            if self.root_state == state:
+            if self.root_state == state and self.training:
                 # simulation阶段的这个噪声可以防止坍缩
                 p_ = 0.75 * p_ + 0.25 * dirichlet[i]
             elif self.training:
@@ -235,19 +238,3 @@ class Player(object):
         self.job_done = True
         del self.tree
         gc.collect()
-
-
-def softmax(x):
-    m = np.max(x)
-    x -= m
-    ex = np.exp(x)
-    fenmu = np.sum(ex)
-    return ex / fenmu
-
-
-def my_pow(x: float, y: int):
-    res = x
-    while y > 0:
-        res *= x
-        y -= 1
-    return x

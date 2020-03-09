@@ -224,4 +224,4 @@ import json, time, os
 #     for i in range(15):
 #         p = Process(target=task, args=(lock,))
 #         p.start()
-print(11*11*32)
+print(260*0.35)
