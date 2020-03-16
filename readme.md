@@ -81,7 +81,7 @@ entropy反映了输出policy的概率分布的熵。在初期随机落子，熵�
 
 
 ## 参考代码
- [ChineseChess-alphaZero](https://github.com/NeymarL/ChineseChess-AlphaZero), 
+ [ChineseChess-alphaZero](https://github.com/NeymarL/ChineseChess-AlphaZero), 还有一个写界面的参考代码找不着了
 
 ## 后续工作
 1. 进一步往后训练。可能需要适当加大buffer size，并调整学习率；
