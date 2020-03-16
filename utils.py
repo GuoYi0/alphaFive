@@ -123,6 +123,7 @@ class RandomStack(object):
         values = np.empty((num,), dtype=np.float32)
         policies = np.empty((num, self.board_size, self.board_size), dtype=np.float32)
         for i, ix in enumerate(idx):
+            # 有序棋盘具有对称性，所以有旋转和翻转，共8种对称方式来进行数据增强
             state, p, la, v, w = self.data[ix]
             board = state_to_board(state, self.board_size)
             k = np.random.choice([0, 1, 2, 3])
@@ -153,6 +154,11 @@ def softmax(x):
 
 
 def board_to_state(board: np.ndarray) -> str:
+    """
+    由数组表示棋盘转换为字符串表示的棋盘
+    :param board: 一个棋盘
+    :return:
+    """
     fen = ""
     h, w = board.shape
     for i in range(h):
@@ -171,7 +177,7 @@ def board_to_state(board: np.ndarray) -> str:
 
 def state_to_board(state: str, board_size: int):
     """
-    根据字符串表示的state转换为棋盘。字符串中，黑子用1表示，红子用3表示
+    根据字符串表示的state转换为棋盘。字符串中
     :param state:
     :param board_size:
     :return:
@@ -192,8 +198,8 @@ def state_to_board(state: str, board_size: int):
 
 def is_game_over(board: np.ndarray, goal: int) -> tuple:
     """
-    基于黑子(1)落子前，判断当前局面是否结束，一般来说若结束且非和棋都会返回-1.0，
-    因为现在轮到黑子（1）落子了，但是游戏却已经结束了，结束前的最后一步一定是白子(-1)落子的，白子赢了，则返回-1
+    基于当前玩家落子前，判断当前局面是否结束，一般来说若结束且非和棋都会返回-1.0，
+    因为现在轮到当前玩家落子了，但是游戏却已经结束了，结束前的最后一步一定是对手落子的，对手赢了，则返回-1
     :param board:
     :param goal:五子棋，goal就等于五
     :return:
@@ -230,6 +236,11 @@ def is_game_over(board: np.ndarray, goal: int) -> tuple:
 
 
 def get_legal_actions(board: np.ndarray):
+    """
+    根据棋局返回所有的合法落子位置
+    :param board:
+    :return:
+    """
     zeros = np.where(board == 0)
     return [(int(i), int(j)) for i, j in zip(*zeros)]
 
@@ -243,8 +254,17 @@ def board_to_inputs2(board: np.ndarray, type_=np.float32):
 
 
 def board_to_inputs(board: np.ndarray, type_=np.float32, last_action=None):
+    """
+    根据当前棋局和上一次落子地方，生成network的输入。
+    第三个last action的channel估计可以去掉，影响很小。
+    :param board:
+    :param type_:
+    :param last_action:
+    :return:
+    """
     f1 = np.where(board == 1, 1.0, 0.0)
     f2 = np.where(board == -1, 1.0, 0.0)
+    # return np.stack([f1, f2], axis=0).astype(type_)
     f3 = np.zeros(shape=board.shape, dtype=np.float32)
     if last_action is not None:
         f3[last_action[0], last_action[1]] = 1.0

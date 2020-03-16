@@ -2,13 +2,18 @@
 模仿AlphaGo/AlphaGo Zero写的一个五子棋AI，为了快速收敛，针对五子棋的特点做了一些小trick改进
 
 先上效果图
+
 ![five_6960.gif](https://github.com/GuoYi0/alphaFive/blob/master/tmp/five_6960.gif)
 
 ## 运行
 *自我对弈* `python self_play.py`
+
 *人机对弈* `python GUI.py`
+
 *训练* `python train.py`
+
 *两个ckpt之间对弈或者在所有ckpt之间选择一个最佳* `python choose_best_player.py`
+这也需要在`choose_best_player.py`的`main()`函数中修改`all_ckpts`以适应ckpt目录下的具体的ckpt
 
 ## 算法
 AlphaGo/AlphaGo Zero核心思想是用一个network搭配MCST进行搜索和优化。network的输入为相对于当前玩家棋盘局面，
@@ -72,6 +77,7 @@ entropy反映了输出policy的概率分布的熵。在初期随机落子，熵�
 
 图中显示的value loss和xentropy loss都是没有加权的，即棋局初期和后期的权重保持一致。而total loss是加权value loss，加权xentropy loss，L2正则化loss之和。
 
+该project只提供了学习率下降之前的ckpt，即6960步的ckpt。本人通过`choose_best_player.py`发现后续的ckpt依然在慢慢变得厉害。
 
 ## 后续工作
 1. 进一步往后训练。可能需要适当加大buffer size，并调整学习率；

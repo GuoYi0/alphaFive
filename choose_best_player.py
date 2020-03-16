@@ -24,9 +24,7 @@ AI = 2
 def main():
     config.simulation_per_step = 500
     # 先只搜索6060以上的
-    # all_ckpts = [os.path.join("ckpt", "alphaFive-"+str(num)) for num in range(60, 8800, 60)][100:-1]
-    all_ckpts = [os.path.join("ckpt", "alphaFive-"+str(num)) for num in [8640, 6960]]
-    print(all_ckpts)
+    all_ckpts = [os.path.join("ckpt", "alphaFive-"+str(num)) for num in range(60, 8800, 60)][100:-1]
     net0 = Model(config.board_size, tf.Graph())
     net0.restore(all_ckpts[0])
     net1 = Model(config.board_size, tf.Graph())

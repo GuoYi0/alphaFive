@@ -30,7 +30,7 @@ class Player(object):
         self.root_state = None
         self.goal = self.config.goal
         self.tau = self.config.init_temp  # 初始温度
-        self.pipe = pipe
+        self.pipe = pipe  # 通信管道
         self.job_done = False
         self.pv_fn = pv_fn
 
@@ -52,7 +52,7 @@ class Player(object):
 
     def run(self, e=0.25):
         """
-        对弈一局，
+        对弈一局，获得一条数据，即从初始到游戏结束的一条数据
         :return:
         """
         state = self.get_init_state()
@@ -82,6 +82,14 @@ class Player(object):
         return final_data
 
     def calc_policy(self, state, e, random_a):
+        """
+        根据state表示的状态的状态信息来计算policy
+        :param state:
+        :param e:
+        :param random_a: 这个参数是为了`choose_best_player.py`而设定的，是的在各个ckpt之间进行对弈的时候有一定的随机性
+        在人机对弈的时候，为了让机器的落子有一定的随机性，也可以把这个变量设置为True
+        :return:
+        """
         node = self.tree[state]
         policy = np.zeros((self.config.board_size, self.config.board_size), np.float32)
         most_visit_count = -1
@@ -111,13 +119,22 @@ class Player(object):
         for i, action in enumerate(candidate_actions):
             policy[action[0], action[1]] = policy_valid[i]
         p = policy_valid
-        # print(p)
+        # alphaGo这里添加了一个噪声。本project因为在探索的时候加的噪声足够多了，这里就不需要了
         # p = (1 - e) * p + e * np.random.dirichlet(0.5 * np.ones(policy_valid.shape[0]))
         # p = p / p.sum()  # 有精度损失，导致其和不是1了
         random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=p))]
         return policy, random_action
 
-    def get_action(self, state, e=0.25, last_action=None, random_a=False):
+    def get_action(self, state: str, e: float=0.25, last_action: tuple=None, random_a=False):
+        """
+        根据state表示的棋局状态进行多次蒙特卡洛搜索以获取一个动作
+        :param state: 字符串表示的当前棋局状态
+        :param e: 为训练而添加的噪声系数。后来还是没有使用他
+        :param last_action:
+        :param random_a: 这个参数是为了`choose_best_player.py`而设定的，是的在各个ckpt之间进行对弈的时候有一定的随机性
+        在人机对弈的时候，为了让机器的落子有一定的随机性，也可以把这个变量设置为True
+        :return:
+        """
         self.root_state = state
         # # 该节点已经被访问了sum_n次，最多访问642次好了，节约点时间
         if state not in self.tree:
@@ -130,6 +147,12 @@ class Player(object):
         return policy, action
 
     def pruning_tree(self, board: np.ndarray, state: str = None):
+        """
+        主游戏前进一步以后，可以对树进行剪枝，只保留前进的那一步所对应的子树
+        :param board:
+        :param state:
+        :return:
+        """
         if state is None:
             state = utils.board_to_state(board)
         keys = list(self.tree.keys())
@@ -142,6 +165,7 @@ class Player(object):
 
     def update_tree(self, v, history: list):
         """
+        回溯更新
         :param p: policy 当前局面对黑方的策略
         :param v: value, 当前局面对黑方的价值
         :param history: 包含当前局面的一个棋局，(state, action) pair
@@ -179,7 +203,7 @@ class Player(object):
 
     def MCTS_search(self, state: str, history: list, last_action: tuple):
         """
-        以state为根节点进行MCTS搜索
+        以state为根节点进行MCTS搜索，搜索历史保存在histoty之中
         :param state: 一个字符串代表的当前状态，根节点
         :param history: 包含当前状态的一个列表
         :param last_action: 上一次的落子位置
@@ -204,6 +228,11 @@ class Player(object):
             last_action = sel_action
 
     def select_action_q_and_u(self, state: str) -> tuple:
+        """
+        根据结点状态信息返回一个action
+        :param state:
+        :return:
+        """
         node = self.tree[state]
         node.sum_n += 1  # 从这结点出发选择动作，该节点访问次数加一
         action_keys = list(node.a.keys())
@@ -216,12 +245,14 @@ class Player(object):
             action_state = node.a[ac]
             p_ = action_state.p  # 该动作的先验概率
             if self.training:
+                # 训练时候为根节点添加较大噪声，非根节点添加较小噪声
                 if self.root_state == state:
                     # simulation阶段的这个噪声可以防止坍缩
                     p_ = 0.75 * p_ + 0.25 * dirichlet[i]
                 else:
                     p_ = 0.9 * p_ + 0.1 * dirichlet[i]  # 非根节点添加较小的噪声
             # else:
+            #     # 给测试的时候也适当添加噪声，以便于充分搜索，和增加一点随机性。当然，这个随机性也可以在policy的概率分布中产生
             #     if self.root_state == state:
             #         # simulation阶段的这个噪声可以防止坍缩
             #         p_ = 0.85 * p_ + 0.15 * dirichlet[i]

@@ -16,9 +16,10 @@ class ResNet(object):
         self.graph = tf.get_default_graph() if graph is None else graph
         with self.graph.as_default():
             self.board_size = board_size
+            # 棋局的输入
             self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 3, board_size, board_size], name="inputs")
-            self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")
-            self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")
+            self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")  # value的监督信号
+            self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")  # policy的监督信号
             self.weights = tf.placeholder(dtype=tf.float32, shape=[None], name="weights")
             self.training = tf.placeholder(dtype=tf.bool, shape=(), name="training")
             self.value = None
@@ -70,6 +71,8 @@ class ResNet(object):
             last_dim = reduce(lambda x, y: x * y, v.get_shape().as_list()[1:])
             v = tf.reshape(v, (-1, last_dim))
             v = tf.layers.dense(v, 64, activation=tf.nn.elu, name="fc1")
+            # 手痒才搞的half_tanh激活函数。因为初期看到value loss很快就下降了，所有才搞的half_tanh，一方面使得实际学习率减半
+            # 另一方面使得对logit的敏感度降低。实际上tanh就可以了
             self.value = tf.squeeze(tf.layers.dense(v, 1, activation=half_tanh, name="fc2"), axis=1)
 
         with tf.variable_scope("policy"):

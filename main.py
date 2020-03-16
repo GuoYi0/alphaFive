@@ -21,15 +21,17 @@ cur_dir = os.path.dirname(__file__)
 os.chdir(cur_dir)
 PURE_MCST = 1
 AI = 2
+
+
 # job_lock = Lock()
 
 
 def main(restore=False):
-    stack = RandomStack(board_size=config.board_size, length=config.buffer_size)
+    stack = RandomStack(board_size=config.board_size, length=config.buffer_size)  # 命名为stack了，事实上是一个队列
     net = model(config.board_size)
     if restore:
         net.restore(config.ckpt_path)
-        stack.load(8700)
+        stack.load(6960)  # 这里需要根据实际情况更改，看从哪一步接着训练，就写为哪一步
     with net.graph.as_default():
         episode_length = tf.placeholder(tf.float32, (), "episode_length")
         total_loss, cross_entropy, value_loss, entropy = net.total_loss, net.cross_entropy_loss, net.value_loss, net.entropy
@@ -41,23 +43,23 @@ def main(restore=False):
         tf.summary.scalar("total_loss", total_loss)
         tf.summary.scalar("entropy", entropy)
         tf.summary.scalar('episode_len', episode_length)
-        # log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
-        log_dir = "E:\\alphaFive\summary\log_20200312_11_54_18"
+        log_dir = os.path.join("summary", "log_" + time.strftime("%Y%m%d_%H_%M_%S", time.localtime()))
         journalist = tf.summary.FileWriter(log_dir, flush_secs=10)
         summury_op = tf.summary.merge_all()
-    step = 1 + 8700
+    step = 1  # 如果接着训练，这里就改为接着的那一步的下一步。手动改了算了，懒得写成自动识别的了
     cur_pipes = [net.get_pipes(config) for _ in range(config.max_processes)]  # 手动创建进程不需要Manager()
-    q = Queue(50)  # 用Process手动创建的进程可以使用这个Queue
+    q = Queue(50)  # 用Process手动创建的进程可以使用这个Queue，否则需要Manager()来管理
     for i in range(config.max_processes):
         proc = Process(target=gen_data, args=(cur_pipes[i], q))
         proc.daemon = True  # 父进程结束以后，子进程就自动结束
         proc.start()
 
     while step < config.total_step:
+        # 每生成一条数据，才训练一次
         net.sess.run(tf.assign(lr, config.get_lr(step)))
         data_record, result = q.get(block=True)  # 获取一个item，没有则阻塞
         r = stack.push(data_record, result)
-        if r:  # 满了再训练会比较慢，但是消除了biase
+        if r and stack.is_full():  # 满了再训练会比较慢，但是消除了biase
             for _ in range(4):
                 boards, weights, values, policies = stack.get_data(batch_size=config.batch_size)
                 xcro_loss, mse_, entropy_, _, sum_res = net.sess.run(
@@ -102,4 +104,4 @@ def next_unused_name(name):
 
 
 if __name__ == '__main__':
-    main(restore=True)
+    main(restore=False)
