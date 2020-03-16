@@ -2,7 +2,7 @@
 模仿AlphaGo/AlphaGo Zero写的一个五子棋AI，为了快速收敛，针对五子棋的特点做了一些小trick改进
 
 先上效果图
-![five_6960.gif](https://ra)
+![five_6960.gif](https://github.com/GuoYi0/alphaFive/blob/master/tmp/five_6960.gif)
 
 ## 运行
 *训练* `python train.py`
@@ -54,8 +54,11 @@ last action仅仅在需要作为network的输入的时候起作用。在模拟�
 
 各种loss如下图所示
 
-![episode_length](https://ra), ![value_loss](https://ra), ![xentropy_loss](https://ra),
-![entropy](https://ra), ![total_loss](https://ra),
+![episode_length](https://github.com/GuoYi0/alphaFive/blob/master/tmp/episode_length.jpg) 
+![value_loss](https://github.com/GuoYi0/alphaFive/blob/master/tmp/value_loss.jpg)
+![xentropy_loss](https://github.com/GuoYi0/alphaFive/blob/master/tmp/xentropy_loss.jpg),
+![entropy](https://github.com/GuoYi0/alphaFive/blob/master/tmp/entropy.jpg)
+![total_loss](https://github.com/GuoYi0/alphaFive/blob/master/tmp/total_loss.jpg),
 
 图eposide_len反映的是模拟对弈的时候产生的棋局的步数，（不是回合数，黑方落子，白方再落子，即为2步）。从该图可以看出，在训练初期，由于是完全随机落子，棋局步数很长，达到了50+
 然后随着训练进行，模拟对弈的棋局步数很快下降，说明AI逐渐掌握了游戏初步规则，需要把五颗棋子摆放成一条线才能赢，赶紧很快就摆成一条线了，这时候只知道进攻，不懂得防守。随着训练的继续进行，AI才逐渐知道怎么防守，游戏逐渐变长。也只有把前期的攻防都学好以后，游戏才能发展到后期。
