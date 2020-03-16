@@ -6,11 +6,14 @@ import os
 import numpy as np
 from genData.player import Player
 import utils
+import cv2
+import imageio
+
 
 GRID_WIDTH = 36
 WIDTH = (config.board_size + 2) * GRID_WIDTH
 HEIGHT = (config.board_size + 2) * GRID_WIDTH
-FPS = 300
+FPS = 30
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 HUMAN = 0
@@ -18,8 +21,9 @@ AI = 2
 
 
 def main(trained_ckpt):
+    print(config.simulation_per_step)
     net = Model(config.board_size)
-    player = Player(config, training=True, pv_fn=net.eval)
+    player = Player(config, training=False, pv_fn=net.eval)
     net.restore(trained_ckpt)
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -31,7 +35,7 @@ def main(trained_ckpt):
     background = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
     back_rect = background.get_rect()
     running = True
-
+    frames = []
     def draw_stone(screen_):
         for i in range(config.board_size):
             for j in range(config.board_size):
@@ -78,47 +82,49 @@ def main(trained_ckpt):
     state = board
     draw_background(screen)
     pygame.display.flip()
-    print("game starts")
+    image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+    frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
     turn = 0
+    i = 0
     while running:
         clock.tick(FPS)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
                 break
+        action = None
         if not game_over:
-            _, action = player.get_action(state_str)
-            print(action)
+            _, action = player.get_action(state_str, last_action=action)
             board = utils.step(utils.state_to_board(state_str, config.board_size), action)
             state_str = utils.board_to_state(board)
-            player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
+            # player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
             game_over, value = utils.is_game_over(board, config.goal)
-            print(value)
-            if turn %2 ==0:
+            if turn %2 ==1:
                 state = board
             else:
                 state = -board
             turn += 1
-            # draw_background(screen)
-            # draw_stone(screen)
-            # pygame.display.flip()
-        draw_background(screen)
-        draw_stone(screen)
-        pygame.display.flip()
+            draw_background(screen)
+            draw_stone(screen)
+            pygame.display.flip()
+            image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+            frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
+
+        # draw_background(screen)
+        # draw_stone(screen)
+        # pygame.display.flip()
+        if game_over:
+            i += 1
+            image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+            frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
+            if i >= 3:  # 最终保留三帧
+                break
+
     pygame.quit()
-
-
-def out_of_boundry(pos):
-    return pos[0] < GRID_WIDTH or pos[1] < GRID_WIDTH or pos[0] > WIDTH - GRID_WIDTH or pos[1] > HEIGHT - GRID_WIDTH
-
-
-def print_info(player):
-    if player == HUMAN:
-        print("human's turn...")
-    else:
-        print("AI's turn...")
+    print("game finished, start to write to gif.")
+    gif = imageio.mimsave("tmp/five.gif", frames,'GIF', duration=0.8)
+    print("done!")
 
 
 if __name__ == "__main__":
-    main(trained_ckpt=config.ckpt_path)
-    # main(trained_ckpt="E:\\alphaFive\\five19\\ckpt\\alphaFive-7980")
+    main(trained_ckpt="ckpt\\alphaFive-6960")

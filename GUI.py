@@ -7,7 +7,10 @@ import numpy as np
 from genData.player import Player
 import utils
 import tensorflow as tf
+import imageio
+import cv2
 
+make_gif = True
 GRID_WIDTH = 36
 WIDTH = (config.board_size + 2) * GRID_WIDTH
 HEIGHT = (config.board_size + 2) * GRID_WIDTH
@@ -32,6 +35,7 @@ def main(trained_ckpt):
     background = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
     back_rect = background.get_rect()
     running = True
+    frames = []
 
     # def draw_stone(screen_):
     #     for i in range(config.board_size):
@@ -82,20 +86,16 @@ def main(trained_ckpt):
         for cc in circle_center:
             pygame.draw.circle(surf, BLACK, cc, 5)
 
-    def visual_update(matrix, file_record, step):
-        if step >= len(file_record):
-            return False
-        else:
-            if step % 2 == 0:
-                stone = 1
-            else:
-                stone = -1
-            ss = file_record[step]
-            matrix[ss[0], ss[1]] = stone
-            return True
-
+    draw_background(screen)
+    pygame.display.flip()
+    image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+    frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
     players = [HUMAN, AI]  # 0 表示人类玩家，2表示包含network的AI
-    idx = int(input("input the fist side, (0 human), (1 AI): "))
+    idx = int(input("input the fist side, (0 human), (1 AI), (2 exit): "))
+    while idx not in [0, 1, 2]:
+        idx = int(input("input the fist side, (0 human), (1 AI), (2 exit): "))
+    if idx == 2:
+        exit()
     if players[idx] == AI:
         print("AI first")
     else:
@@ -104,13 +104,12 @@ def main(trained_ckpt):
     state_str = player.get_init_state()
     board = utils.state_to_board(state_str, config.board_size)
     state = board
-    draw_background(screen)
-    # draw_stone(screen)
-    pygame.display.flip()
     last_action = None
+    huihe = 0
     if players[idx] == AI:
         _, action = player.get_action(state_str, last_action=last_action)
         print("AI's action, ", action)
+        huihe += 1
         board = utils.step(utils.state_to_board(state_str, config.board_size), action)
         state_str = utils.board_to_state(board)
         # player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
@@ -119,6 +118,9 @@ def main(trained_ckpt):
         draw_background(screen)
         draw_stone(screen)
         pygame.display.flip()
+        image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+        frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
+    i = 0
     while running:
         clock.tick(FPS)
         for event in pygame.event.get():
@@ -127,12 +129,13 @@ def main(trained_ckpt):
                 break
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if game_over:
-                    continue
+                    break
                 pos = event.pos  # 获得的坐标是(x, y)
                 if out_of_boundry(pos):
                     continue
                 action = (int((pos[1] - GRID_WIDTH) / GRID_WIDTH), int((pos[0] - GRID_WIDTH) / GRID_WIDTH))
                 print("Human's action: ", action)
+                huihe += 1
                 if state[action[0], action[1]] != 0:
                     continue
                 board = utils.step(board, action)  # 人类落子
@@ -144,34 +147,49 @@ def main(trained_ckpt):
                 draw_background(screen)
                 draw_stone(screen)
                 pygame.display.flip()
+                image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+                frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
                 if game_over:
-                    break
-                _, action = player.get_action(state_str, last_action=last_action)
+                    continue
+                _, action = player.get_action(state_str, last_action=last_action, random_a=False)
                 last_action = action
-                print("AI's action ", action, "============")
+                print("AI's action ", action)
+                huihe += 1
                 board = utils.step(utils.state_to_board(state_str, config.board_size), action)
                 state_str = utils.board_to_state(board)
                 player.pruning_tree(board, state_str)  # 走完一步以后，对其他分支进行剪枝，以节约内存
                 game_over, value = utils.is_game_over(board, config.goal)
                 state = -board
-        draw_background(screen)
-        draw_stone(screen)
-        pygame.display.flip()
+                draw_background(screen)
+                draw_stone(screen)
+                pygame.display.flip()
+                image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+                frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
+        if game_over:
+            if i == 0:
+                print(f"game over, total {(huihe+1)//2} rounds")
+                if huihe == config.batch_size * config.batch_size:
+                    print("game tied!")
+                elif huihe % 2 == 1 and players[idx] == AI:
+                    print("AI won! You are stupid!")
+                else:
+                    print("you won!, You niubi")
+            i += 1
+            image_data = pygame.surfarray.array3d(pygame.display.get_surface())
+            frames.append(cv2.resize(image_data, (0, 0), fx=0.5, fy=0.5))
+            if i >= 5 and make_gif:
+                break
+
     pygame.quit()
+    if make_gif:
+        print("game finished, start to write to gif.")
+        gif = imageio.mimsave("tmp/five_6960.gif", frames, 'GIF', duration=1.0)
+    print("done!")
 
 
 def out_of_boundry(pos):
     return pos[0] < GRID_WIDTH or pos[1] < GRID_WIDTH or pos[0] > WIDTH - GRID_WIDTH or pos[1] > HEIGHT - GRID_WIDTH
 
 
-def print_info(player):
-    if player == HUMAN:
-        print("human's turn...")
-    else:
-        print("AI's turn...")
-
-
 if __name__ == "__main__":
-    main(trained_ckpt=config.ckpt_path)
-    # main(trained_ckpt="E:\\alphaFive\\five19\\ckpt\\alphaFive-7980")
-    # main(trained_ckpt="E:\\alphaFive\\five10\\ckpt\\alphaFive-1140")
+    main(trained_ckpt="ckpt\\alphaFive-6960")

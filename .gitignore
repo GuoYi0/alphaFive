@@ -2,8 +2,7 @@
 .idea
 __pycache__
 */__pycache__
-ckpt/*
-summary/*
 game_record
-data_buffer
 test.py
+result.txt
+note.txt

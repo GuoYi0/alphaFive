@@ -1,0 +1,2 @@
+ckpt-3540很牛逼了，我下不赢
+开始训练的时候，memory里面的对局数是black: white = 145: 141 in the memory，self-play black: 132, white: 137

@@ -12,28 +12,29 @@ class ResNet(object):
     """
     针对当前局面进行评估
     """
-    def __init__(self, board_size):
-        self.graph = tf.get_default_graph()
-        self.board_size = board_size
-        self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 3, board_size, board_size], name="inputs")
-        self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")
-        self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")
-        self.weights = tf.placeholder(dtype=tf.float32, shape=[None], name="weights")
-        self.training = tf.placeholder(dtype=tf.bool, shape=(), name="training")
-        self.value = None
-        self.policy = None
-        self.entropy = None
-        self.log_softmax = None
-        self.prob = None
-        self.network()
-        self.cross_entropy_loss, self.value_loss, self.total_loss = None, None, None
-        self.construct_loss()
-        gpu_options = tf.GPUOptions(allow_growth=True)
-        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-        # self.sess = tf.Session()
-        self.sess.run(tf.global_variables_initializer())
-        self.saver = tf.train.Saver(max_to_keep=10000)
-        self.api = None
+    def __init__(self, board_size, graph=None):
+        self.graph = tf.get_default_graph() if graph is None else graph
+        with self.graph.as_default():
+            self.board_size = board_size
+            self.inputs = tf.placeholder(dtype=tf.float32, shape=[None, 3, board_size, board_size], name="inputs")
+            self.winner = tf.placeholder(dtype=tf.float32, shape=[None], name="winner")
+            self.distrib = tf.placeholder(dtype=tf.float32, shape=[None, board_size * board_size], name="distrib")
+            self.weights = tf.placeholder(dtype=tf.float32, shape=[None], name="weights")
+            self.training = tf.placeholder(dtype=tf.bool, shape=(), name="training")
+            self.value = None
+            self.policy = None
+            self.entropy = None
+            self.log_softmax = None
+            self.prob = None
+            self.network()
+            self.cross_entropy_loss, self.value_loss, self.total_loss = None, None, None
+            self.construct_loss()
+            gpu_options = tf.GPUOptions(allow_growth=True)
+            self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options), graph=self.graph)
+            # self.sess = tf.Session()
+            self.sess.run(tf.global_variables_initializer())
+            self.saver = tf.train.Saver(max_to_keep=10000)
+            self.api = None
 
     def construct_loss(self):
         x_entropy = tf.reduce_sum(tf.multiply(self.distrib, self.log_softmax), axis=1)
@@ -45,7 +46,7 @@ class ResNet(object):
         L2_loss = tf.add_n(
             [tf.nn.l2_loss(v) for v in tf.trainable_variables() if "bias" not in v.name and 'bn' not in v.name])
         # self.total_loss = cross_entropy + value_loss + L2_loss * 1e-5
-        self.total_loss = weighted_x_entropy + weighted_value_loss + L2_loss * 4e-5
+        self.total_loss = weighted_x_entropy + 2.0*weighted_value_loss + L2_loss * 4e-5
 
     def residual(self, f, units, name):
         res = tf.layers.conv2d(f, units, 1, padding="VALID", data_format=DATA_FORMAT, name=name+"_res", activation=None)
@@ -75,7 +76,7 @@ class ResNet(object):
             p = self.residual(f, 64, "block4")
             p = self.residual(p, 32, "block5")
             # 为全连接层降低参数量
-            p = tf.layers.conv2d(p, 8, 1, padding="SAME", data_format=DATA_FORMAT, name="conv", activation=tf.nn.elu)
+            p = tf.layers.conv2d(p, 16, 1, padding="SAME", data_format=DATA_FORMAT, name="conv", activation=tf.nn.elu)
             last_dim = reduce(lambda x, y: x * y, p.get_shape().as_list()[1:])
             p = tf.reshape(p, (-1, last_dim))
             self.policy = tf.layers.dense(p, self.board_size * self.board_size, activation=None, name="fc")
@@ -152,7 +153,8 @@ class ResNet(object):
 
     def close(self):
         self.sess.close()
-        self.api.close()
+        if self.api is not None:
+            self.api.close()
 
 
 def half_tanh(x):

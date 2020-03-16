@@ -265,7 +265,6 @@ def step(board: np.ndarray, action: tuple):
 
 def construct_weights(length: int, gamma=0.95):
     """
-    每局游戏大概36回合，64步，0.95^64=0.0375
     :param length:
     :param gamma:
     :return:

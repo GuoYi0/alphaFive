@@ -81,12 +81,7 @@ class Player(object):
             value = -value
         return final_data
 
-    def calc_policy(self, state, e):
-        """
-        根据访问次数计算策略和动作，
-        :param state:
-        :return: 策略，最佳动作，随机动作
-        """
+    def calc_policy(self, state, e, random_a):
         node = self.tree[state]
         policy = np.zeros((self.config.board_size, self.config.board_size), np.float32)
         most_visit_count = -1
@@ -100,9 +95,12 @@ class Player(object):
         # for i, action in enumerate(candidate_actions):
         #     print(action, node.a[action].n,node.a[action].p)
         # from IPython import embed; embed()
-        if not self.training:
+        if not self.training and not random_a:
             return None, best_action
-        self.tau *= self.config.tau_decay_rate
+        if random_a:
+            self.tau *= self.config.tau_decay_rate_r
+        else:
+            self.tau *= self.config.tau_decay_rate
         if self.tau <= 0.01:
             for a in best_actions:
                 policy[a[0], a[1]] = 1.0 / len(best_actions)
@@ -113,12 +111,13 @@ class Player(object):
         for i, action in enumerate(candidate_actions):
             policy[action[0], action[1]] = policy_valid[i]
         p = policy_valid
+        # print(p)
         # p = (1 - e) * p + e * np.random.dirichlet(0.5 * np.ones(policy_valid.shape[0]))
         # p = p / p.sum()  # 有精度损失，导致其和不是1了
         random_action = candidate_actions[int(np.random.choice(len(candidate_actions), p=p))]
         return policy, random_action
 
-    def get_action(self, state, e=0.25, last_action=None):
+    def get_action(self, state, e=0.25, last_action=None, random_a=False):
         self.root_state = state
         # # 该节点已经被访问了sum_n次，最多访问642次好了，节约点时间
         if state not in self.tree:
@@ -127,7 +126,7 @@ class Player(object):
             num = min(self.config.simulation_per_step, self.config.upper_simulation_per_step-self.tree[state].sum_n)
         for i in range(num):
             self.MCTS_search(state, [state], last_action)
-        policy, action = self.calc_policy(state, e)
+        policy, action = self.calc_policy(state, e, random_a=random_a)
         return policy, action
 
     def pruning_tree(self, board: np.ndarray, state: str = None):
@@ -179,6 +178,13 @@ class Player(object):
         return value
 
     def MCTS_search(self, state: str, history: list, last_action: tuple):
+        """
+        以state为根节点进行MCTS搜索
+        :param state: 一个字符串代表的当前状态，根节点
+        :param history: 包含当前状态的一个列表
+        :param last_action: 上一次的落子位置
+        :return:
+        """
         while True:
             board = utils.state_to_board(state, self.config.board_size)
             game_over, v = utils.is_game_over(board, self.goal)  # 落子前检查game over
@@ -190,8 +196,8 @@ class Player(object):
                 v = self.evaluate_and_expand(state, board, last_action)  # 落子前进行评估
                 self.update_tree(v, history=history)
                 break
-            sel_action = self.select_action_q_and_u(state)
-            history.append(sel_action)
+            sel_action = self.select_action_q_and_u(state)  # 根据state选择一个action
+            history.append(sel_action)  # 放进action
             board = utils.step(board, sel_action)
             state = utils.board_to_state(board)
             history.append(state)
@@ -209,15 +215,22 @@ class Player(object):
         for i, ac in enumerate(action_keys):
             action_state = node.a[ac]
             p_ = action_state.p  # 该动作的先验概率
-            if self.root_state == state and self.training:
-                # simulation阶段的这个噪声可以防止坍缩
-                p_ = 0.75 * p_ + 0.25 * dirichlet[i]
-            elif self.training:
-                p_ = 0.9 * p_ + 0.1 * dirichlet[i]  # 非根节点添加较小的噪声
+            if self.training:
+                if self.root_state == state:
+                    # simulation阶段的这个噪声可以防止坍缩
+                    p_ = 0.75 * p_ + 0.25 * dirichlet[i]
+                else:
+                    p_ = 0.9 * p_ + 0.1 * dirichlet[i]  # 非根节点添加较小的噪声
+            # else:
+            #     if self.root_state == state:
+            #         # simulation阶段的这个噪声可以防止坍缩
+            #         p_ = 0.85 * p_ + 0.15 * dirichlet[i]
+            #     else:
+            #         p_ = 0.95 * p_ + 0.05 * dirichlet[i]  # 非根节点添加较小的噪声
             scores[i] = action_state.q + self.config.c_puct * p_ * np.sqrt(node.sum_n + 1) / (1 + action_state.n)
             q_value[i] = action_state.q
             counts[i] = action_state.n
-        if self.root_state == state:
+        if self.root_state == state and self.training:
             # 对于根节点，保证每个结点至少被访问两次，其中一次是展开，另一次是探索。
             # 故要求simulation_per_step >> 2*board_size*board_size才有意义
             # 这么做使得概率分布更加smooth，从而探索得更好

@@ -224,4 +224,31 @@ import json, time, os
 #     for i in range(15):
 #         p = Process(target=task, args=(lock,))
 #         p.start()
-print(260*0.35)
+# class A(object):
+#     def __init__(self):
+#         self.num = 0
+#
+#     def my_print(self):
+#         print(self.num)
+#
+#     def set(self, h):
+#         self.num = h
+#
+#
+# class M(object):
+#     def __init__(self, fn):
+#         self.fn = fn
+#
+#     def zhixing(self):
+#         self.fn()
+#
+#
+# a = A()
+# m = M(a.my_print)
+# m.zhixing()
+# a.set(20)
+# m.zhixing()
+
+for _ in range(10):
+    idx = np.random.choice(5, 3)
+    print(idx)
