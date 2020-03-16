@@ -10,7 +10,7 @@ import tensorflow as tf
 import imageio
 import cv2
 
-make_gif = True
+make_gif = False  # 是否要生成gif
 GRID_WIDTH = 36
 WIDTH = (config.board_size + 2) * GRID_WIDTH
 HEIGHT = (config.board_size + 2) * GRID_WIDTH
@@ -192,4 +192,4 @@ def out_of_boundry(pos):
 
 
 if __name__ == "__main__":
-    main(trained_ckpt="ckpt\\alphaFive-6960")
+    main(trained_ckpt=config.ckpt_path)

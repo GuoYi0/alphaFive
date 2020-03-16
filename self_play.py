@@ -127,4 +127,4 @@ def main(trained_ckpt):
 
 
 if __name__ == "__main__":
-    main(trained_ckpt="ckpt\\alphaFive-6960")
+    main(trained_ckpt=config.ckpt_path)
